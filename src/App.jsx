@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -208,6 +209,42 @@ const SUBCATEGORY_LABELS = {
   eventos:     { label: "Eventos",                    icon: "🎟️" },
 };
 
+// Contextual info shown above the table for each period, so students understand
+// what kind of internship they're looking at and whether it fits their situation.
+const SUBCATEGORY_INFO = {
+  verano: {
+    icon: "☀️",
+    title: "Sobre las Prácticas de Verano",
+    facts: [
+      { icon: "📅", label: "Cuándo", text: "Suelen comenzar en Diciembre o Enero." },
+      { icon: "⏳", label: "Duración", text: "Generalmente 3 meses o menos." },
+      { icon: "🎓", label: "Perfil", text: "Orientadas principalmente a penúltimo y último año, aunque en varias ocasiones aceptan alumnos más jóvenes (desde tercer año)." },
+      { icon: "🛡️", label: "Requisitos", text: "Los seguros otorgados por la universidad son obligatorios." },
+      { icon: "🤝", label: "Para qué sirve", text: "Suele ser el primer acercamiento real a la empresa." },
+    ],
+  },
+  profesional: {
+    icon: "💼",
+    title: "Sobre las Prácticas Profesionales",
+    facts: [
+      { icon: "📅", label: "Cuándo", text: "Suelen abrir en verano, marzo o agosto." },
+      { icon: "⏳", label: "Duración", text: "Entre 3 y 6 meses." },
+      { icon: "🎓", label: "Perfil", text: "Alumnos de penúltimo y/o último año, generalmente con calidad de alumno regular." },
+      { icon: "📜", label: "Para qué sirve", text: "Suele ser la práctica obligatoria que piden las universidades para poder titularse." },
+    ],
+  },
+  intermedia: {
+    icon: "🔄",
+    title: "Sobre las Off-Cycle / Intermedias",
+    facts: [
+      { icon: "📅", label: "Cuándo", text: "Pueden abrir en cualquier momento del año." },
+      { icon: "⏳", label: "Duración", text: "Entre 6 meses y 1 año." },
+      { icon: "🎓", label: "Perfil", text: "Orientadas a último año y/o recién egresados." },
+      { icon: "🚀", label: "Para qué sirve", text: "Suelen ser programas de transición o inserción laboral más profunda. Pueden o no ser requisito universitario." },
+    ],
+  },
+};
+
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const COUNTRIES = [
   { code: "CL", name: "Chile",     flag: "🇨🇱", active: true  },
@@ -218,17 +255,19 @@ const COUNTRIES = [
   { code: "ES", name: "España",    flag: "🇪🇸", active: false },
 ];
 
+// `locked: true` → area card is visible but not clickable yet ("Pronto").
+// Sheet URLs stay connected; we just don't expose the area in the UI until it's populated.
 const AREAS = [
   { id: "software",    label: "Software & Tech", icon: "💻", color: "#2563eb" },
   { id: "finanzas",    label: "Finanzas",         icon: "📈", color: "#059669" },
   { id: "consultoria", label: "Consultoría",      icon: "🧠", color: "#7c3aed" },
   { id: "marketing",   label: "Marketing",        icon: "📣", color: "#d97706" },
-  { id: "ingenieria",  label: "Ingeniería",       icon: "⚙️",  color: "#dc2626" },
-  { id: "legal",       label: "Legal",            icon: "⚖️",  color: "#0891b2" },
   { id: "rrhh",        label: "RRHH",             icon: "🤝", color: "#059669" },
-  { id: "salud",       label: "Salud",            icon: "🏥", color: "#e11d48" },
-  { id: "diseno",      label: "Diseño & UX",      icon: "🎨", color: "#d97706" },
-  { id: "educacion",   label: "Educación",        icon: "📚", color: "#7c3aed" },
+  { id: "ingenieria",  label: "Ingeniería",       icon: "⚙️",  color: "#dc2626", locked: true },
+  { id: "legal",       label: "Legal",            icon: "⚖️",  color: "#0891b2", locked: true },
+  { id: "salud",       label: "Salud",            icon: "🏥", color: "#e11d48", locked: true },
+  { id: "diseno",      label: "Diseño & UX",      icon: "🎨", color: "#d97706", locked: true },
+  { id: "educacion",   label: "Educación",        icon: "📚", color: "#7c3aed", locked: true },
 ];
 
 const STATUS_OPTIONS = ["Sin estado","Interesado/a","Postulé","Entrevista","Oferta","Rechazado"];
@@ -241,6 +280,22 @@ const SS = {
   "Oferta":       { bg: "#faf5ff", text: "#7c3aed", border: "#e9d5ff" },
   "Rechazado":    { bg: "#fff1f2", text: "#e11d48", border: "#fecdd3" },
 };
+
+// Dark-mode status colors: deep tinted backgrounds + bright text, tuned for true-black UI
+const SS_DARK = {
+  "Sin estado":   { bg: "#18181b", text: "#8e8e98", border: "#28282d" },
+  "Interesado/a": { bg: "#0e1c30", text: "#5fa8fb", border: "#1c3454" },
+  "Postulé":      { bg: "#0c2116", text: "#40d47e", border: "#163524" },
+  "Entrevista":   { bg: "#241b0c", text: "#f5b638", border: "#3d2f12" },
+  "Oferta":       { bg: "#1d0f2e", text: "#bf7cf9", border: "#301a4d" },
+  "Rechazado":    { bg: "#280f16", text: "#fb6a7f", border: "#421a24" },
+};
+
+// Return the right status color set for the current theme
+function statusColors(status, dark) {
+  const map = dark ? SS_DARK : SS;
+  return map[status] || map["Sin estado"];
+}
 
 // ─── THEME (light default) ────────────────────────────────────────────────────
 const LT = {
@@ -263,22 +318,22 @@ const LT = {
   accent:    "#2563eb",
 };
 const DT = {
-  bg:        "#08080f",
-  surface:   "#0f0f1a",
-  card:      "#0f0f1a",
-  border:    "#1e1e30",
-  borderMid: "#252538",
-  text:      "#eeeef5",
-  textSec:   "#9898b0",
-  muted:     "#4a4a62",
-  faint:     "#30304a",
-  input:     "#0d0d18",
-  thead:     "#0b0b14",
-  pill:      "#13131f",
-  navBg:     "rgba(8,8,15,0.88)",
-  dropdown:  "#14141f",
-  red:       "#d4281a",
-  redLight:  "#2a1010",
+  bg:        "#000000",
+  surface:   "#0c0c0e",
+  card:      "#0c0c0e",
+  border:    "#212124",
+  borderMid: "#2e2e33",
+  text:      "#f5f5f7",
+  textSec:   "#b0b0b8",
+  muted:     "#76767e",
+  faint:     "#4e4e56",
+  input:     "#0a0a0c",
+  thead:     "#0a0a0c",
+  pill:      "#161619",
+  navBg:     "rgba(0,0,0,0.85)",
+  dropdown:  "#141416",
+  red:       "#ff4438",
+  redLight:  "#2a0f0d",
   accent:    "#5aabff",
 };
 
@@ -313,6 +368,39 @@ function parseRegions(regionStr) {
   return regionStr.split(/[,;|/]/).map(s => s.trim()).filter(Boolean);
 }
 
+// Parse a date string from the Sheet. Supports DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD,
+// and falls back to native Date parsing if format is unrecognized.
+// Returns a Date object or null if unparseable.
+function parseDate(str) {
+  if (!str) return null;
+  const s = String(str).trim();
+  if (!s) return null;
+
+  // DD/MM/YYYY or DD-MM-YYYY (day first, common in Chile/LATAM/ES)
+  let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (m) {
+    let [, d, mo, y] = m;
+    d = parseInt(d, 10); mo = parseInt(mo, 10); y = parseInt(y, 10);
+    if (y < 100) y += 2000;
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+      return new Date(y, mo - 1, d);
+    }
+  }
+
+  // ISO YYYY-MM-DD (also accepted)
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) {
+    const y = parseInt(m[1], 10), mo = parseInt(m[2], 10), d = parseInt(m[3], 10);
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+      return new Date(y, mo - 1, d);
+    }
+  }
+
+  // Fallback to native parser (handles "Aug 15 2025" etc.)
+  const native = new Date(s);
+  return isNaN(native.getTime()) ? null : native;
+}
+
 // Build URL for company logo stored in Supabase Storage `logos` bucket.
 // Pass the filename without extension (e.g. "santander" → tries png, svg, webp).
 // Returns null if no SUPABASE_URL configured.
@@ -326,8 +414,11 @@ function logoUrl(name, ext = "png") {
 
 function postedStyle(posted, deadline) {
   if (!posted) return {};
-  const daysOld  = Math.floor((Date.now() - new Date(posted)) / 86400000);
-  const daysLeft = deadline ? Math.floor((new Date(deadline) - Date.now()) / 86400000) : 999;
+  const postedDate = parseDate(posted);
+  const deadlineDate = parseDate(deadline);
+  if (!postedDate) return {};
+  const daysOld  = Math.floor((Date.now() - postedDate) / 86400000);
+  const daysLeft = deadlineDate ? Math.floor((deadlineDate - Date.now()) / 86400000) : 999;
   if (daysOld <= 7)   return { color: "#2563eb", fontWeight: 600, title: "Publicado recientemente" };
   if (daysLeft >= 0)  return { color: "#16a34a", title: "Postulaciones abiertas" };
   return {};
@@ -335,7 +426,9 @@ function postedStyle(posted, deadline) {
 
 function deadlineInfo(d) {
   if (!d) return null;
-  const days = Math.floor((new Date(d) - Date.now()) / 86400000);
+  const parsed = parseDate(d);
+  if (!parsed) return null;
+  const days = Math.floor((parsed - Date.now()) / 86400000);
   if (days < 0)   return { color: "#ef4444", text: "⛔ Cerrado" };
   if (days <= 5)  return { color: "#f59e0b", text: "⚠️ " + d + " (" + days + "d)" };
   if (days <= 14) return { color: "#10b981", text: d + " (" + days + "d)" };
@@ -462,12 +555,14 @@ export default function App() {
 
   const go = (to, opts) => {
     setFading(true);
+    // Scroll to top so new page starts clean
+    window.scrollTo({ top: 0, behavior: "instant" });
     setTimeout(() => {
       if (opts?.country !== undefined) setCountry(opts.country);
       if (opts?.area    !== undefined) setArea(opts.area);
       setPage(to);
       setFading(false);
-    }, 150);
+    }, 160);
   };
 
   const login = (email, name, sbUserId) => {
@@ -569,12 +664,14 @@ export default function App() {
 
       {authOpen && <AuthModal t={t} login={login} close={() => setAuthOpen(false)} />}
 
-      <div style={{ paddingTop:56, opacity:fading?0:1, transition:"opacity .15s" }}>
-        {page==="landing" && <Landing  t={t} dark={dark} go={go} user={user} />}
+      <div key={page} className={fading ? "page-leaving" : "page-entering"} style={{ paddingTop:56 }}>
+        {page==="landing" && <Landing  t={t} dark={dark} go={go} user={user} liveCounts={liveCounts} />}
         {page==="country" && <CountryPage t={t} go={go} />}
         {page==="area"    && <AreaPage t={t} go={go} country={country} liveCounts={liveCounts} />}
         {page==="tracker" && <Tracker  t={t} dark={dark} go={go} country={country} area={area} progress={progress} updStatus={updStatus} updNote={updNote} user={user} setAuthOpen={setAuthOpen} liveCounts={liveCounts} />}
         {page==="profile"  && <Profile t={t} dark={dark} go={go} user={user} progress={progress} setUser={setUser} setProgress={setProgress} />}
+        {page==="about"    && <About t={t} go={go} />}
+        {!["landing","country","area","tracker","profile","about"].includes(page) && <NotFound t={t} go={go} />}
       </div>
     </div>
   );
@@ -654,7 +751,13 @@ function AuthModal({ t, login, close }) {
         if (pwd.length < 6){ setErr("Mínimo 6 caracteres."); setBusy(false); return; }
         if (useSupabase) {
           await sbSignUp(mail, pwd, name);
-          setConfirmed(true); // Show confirmation message
+          setConfirmed(true);
+          // Fire-and-forget welcome email
+          fetch("/api/welcome", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: mail, name }),
+          }).catch(() => {});
         } else {
           if (loadUser(mail)) { setErr("Ya existe una cuenta con ese correo."); setBusy(false); return; }
           const hash = await hashPwd(pwd);
@@ -744,17 +847,19 @@ function AuthModal({ t, login, close }) {
 }
 
 // ─── LANDING ──────────────────────────────────────────────────────────────────
-function Landing({ t, dark, go, user }) {
-  const total = Object.values(DEMO_DATA).reduce((s,a)=>s+Object.values(a).reduce((ss,arr)=>ss+arr.length,0),0);
+function Landing({ t, dark, go, user, liveCounts }) {
+  const liveTotal = liveCounts ? Object.values(liveCounts).reduce((s,n)=>s+(Number(n)||0),0) : 0;
+  const demoTotal = Object.values(DEMO_DATA).reduce((s,a)=>s+Object.values(a).reduce((ss,arr)=>ss+arr.length,0),0);
+  const total = liveTotal > 0 ? liveTotal : demoTotal;
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", minHeight:"calc(100vh - 56px)", padding:"40px 24px", position:"relative", overflow:"hidden" }}>
       <div aria-hidden style={{ position:"absolute", inset:0, pointerEvents:"none" }}>
-        <div style={{ position:"absolute", width:700, height:700, borderRadius:"50%", background:"radial-gradient(circle,rgba(212,40,26,.06),transparent 60%)", top:"-10%", left:"50%", transform:"translateX(-50%)" }} />
-        <div className="grid-anim" style={{ position:"absolute", inset:0, backgroundImage:`linear-gradient(${dark?"rgba(255,255,255,.012)":"rgba(0,0,0,.03)"} 1px,transparent 1px),linear-gradient(90deg,${dark?"rgba(255,255,255,.012)":"rgba(0,0,0,.03)"} 1px,transparent 1px)`, backgroundSize:"48px 48px" }} />
+        <div style={{ position:"absolute", width:700, height:700, borderRadius:"50%", background:`radial-gradient(circle,${dark?"rgba(255,68,56,.10)":"rgba(212,40,26,.06)"},transparent 60%)`, top:"-10%", left:"50%", transform:"translateX(-50%)" }} />
+        <div className="grid-anim" style={{ position:"absolute", inset:0, backgroundImage:`linear-gradient(${dark?"rgba(255,255,255,.045)":"rgba(0,0,0,.03)"} 1px,transparent 1px),linear-gradient(90deg,${dark?"rgba(255,255,255,.045)":"rgba(0,0,0,.03)"} 1px,transparent 1px)`, backgroundSize:"48px 48px" }} />
       </div>
       <div className="land-in" style={{ position:"relative", textAlign:"center", maxWidth:680 }}>
         <div style={{ display:"inline-flex", alignItems:"center", gap:7, background:t.pill, border:"1px solid "+t.border, borderRadius:20, padding:"5px 14px", marginBottom:28, fontSize:11, color:t.muted, letterSpacing:".07em", textTransform:"uppercase", fontWeight:700 }}>
-          <span className="blink-dot" /> {total}+ oportunidades curadas · Chile
+          <span className="blink-dot" /> {total}+ oportunidades curadas · Chile · LATAM · España
         </div>
         <h1 style={{ fontFamily:"'Sora',sans-serif", fontSize:"clamp(40px,8vw,80px)", fontWeight:700, lineHeight:1.04, letterSpacing:"-.04em", color:t.text, marginBottom:18 }}>
           {user
@@ -769,8 +874,11 @@ function Landing({ t, dark, go, user }) {
           Explorar pasantías →
         </button>
         <div style={{ marginTop:52, display:"flex", gap:20, justifyContent:"center", flexWrap:"wrap" }}>
-          {AREAS.map(a=><span key={a.id} style={{ fontSize:12, color:t.faint }}>{a.icon} {a.label}</span>)}
+          {AREAS.filter(a=>!a.locked).map(a=><span key={a.id} style={{ fontSize:12, color:t.faint }}>{a.icon} {a.label}</span>)}
         </div>
+        <button onClick={()=>go("about")} style={{ marginTop:38, background:"none", border:"none", color:t.muted, cursor:"pointer", fontSize:13, fontFamily:"inherit", textDecoration:"underline", textUnderlineOffset:4 }}>
+          ¿Qué es MiPasantía? →
+        </button>
       </div>
     </div>
   );
@@ -815,18 +923,28 @@ function AreaPage({ t, go, country, liveCounts }) {
           const demoCount  = Object.values(DEMO_DATA[a.id]||{}).reduce((s,arr)=>s+arr.length,0);
           const hasSheets  = sheetCount > 0;
           // Check if any subcat of this area has new opportunities
-          const areaHasNew = subcatKeys.some(k => hasNew(a.id+"_"+k, liveCounts));
+          const areaHasNew = !a.locked && subcatKeys.some(k => hasNew(a.id+"_"+k, liveCounts));
           return (
-            <button key={a.id} onClick={()=>go("tracker",{area:a.id})} className="area-card"
-              style={{ "--i":i, "--ac":a.color, background:t.card, border:"1.5px solid "+t.border, borderRadius:12, padding:"18px 12px", display:"flex", flexDirection:"column", alignItems:"center", gap:7, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", position:"relative" }}>
+            <button key={a.id}
+              onClick={a.locked ? undefined : ()=>go("tracker",{area:a.id})}
+              disabled={a.locked}
+              title={a.locked ? "Estamos preparando esta área" : undefined}
+              className={a.locked ? "area-card area-locked" : "area-card"}
+              style={{ "--i":i, "--ac":a.color, background:t.card, border:"1.5px solid "+t.border, borderRadius:12, padding:"18px 12px", display:"flex", flexDirection:"column", alignItems:"center", gap:7, cursor:a.locked?"not-allowed":"pointer", fontFamily:"'DM Sans',sans-serif", position:"relative", opacity:a.locked?.55:1 }}>
               {areaHasNew && (
                 <span style={{ position:"absolute", top:8, right:8, width:9, height:9, borderRadius:"50%", background:"#d4281a", boxShadow:"0 0 0 2px white" }} />
               )}
-              <span style={{ fontSize:26 }}>{a.icon}</span>
+              <span style={{ fontSize:26, filter:a.locked?"grayscale(1)":"none" }}>{a.icon}</span>
               <span style={{ fontWeight:600, fontSize:12, color:t.text, lineHeight:1.3, textAlign:"center" }}>{a.label}</span>
-              <span style={{ fontSize:10, color:t.muted }}>
-                {hasSheets ? "Ver oportunidades →" : demoCount + " oportunidades"}
-              </span>
+              {a.locked ? (
+                <span style={{ fontSize:9.5, color:t.faint, background:t.pill, border:"1px solid "+t.border, padding:"2px 8px", borderRadius:20, fontWeight:600, letterSpacing:".04em" }}>
+                  🔒 PRONTO
+                </span>
+              ) : (
+                <span style={{ fontSize:10, color:t.muted }}>
+                  {hasSheets ? "Ver oportunidades →" : demoCount + " oportunidades"}
+                </span>
+              )}
             </button>
           );
         })}
@@ -845,16 +963,22 @@ function Tracker({ t, dark, go, country, area, progress, updStatus, updNote, use
   const [loading,     setLoading]     = useState(false);
   const [sheetError,  setSheetError]  = useState("");
   const [views,       setViews]       = useState({ total: null, today: null });
+  const [celebrateTotal, setCelebrateTotal] = useState(null);
   const [dropdown,    setDropdown]    = useState(null);
   const [search,      setSearch]      = useState("");
   const [remFilt,     setRemFilt]     = useState("Todas");
   const [stFilt,      setStFilt]      = useState("Todas");
   const [cityFilt,    setCityFilt]    = useState("Todas");
+
+  const filtersActive = search !== "" || remFilt !== "Todas" || stFilt !== "Todas" || cityFilt !== "Todas";
+  const clearFilters = () => { setSearch(""); setRemFilt("Todas"); setStFilt("Todas"); setCityFilt("Todas"); };
   const [collapsed,   setCollapsed]   = useState({});
   const [isMobile,    setIsMobile]    = useState(window.innerWidth < 700);
   const [groupBy,     setGroupBy]     = useState(() => {
     try { return localStorage.getItem("mipasantia_groupby") || "auto"; } catch { return "auto"; }
   });
+  const [infoModal,   setInfoModal]   = useState(null); // "stage" | "last_open" | "process" | null
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 700);
@@ -875,6 +999,7 @@ function Tracker({ t, dark, go, country, area, progress, updStatus, updNote, use
   useEffect(() => {
     setCityFilt("Todas");
     setCollapsed({});
+    setCelebrateTotal(null); // clear any pending celebration when changing tabs
     // Mark this subcat as seen so dot disappears
     const key = (area || "todas") + "_" + subcat;
     if (liveCounts && liveCounts[key] !== undefined) {
@@ -894,7 +1019,10 @@ function Tracker({ t, dark, go, country, area, progress, updStatus, updNote, use
         // Handle both array and single object responses
         const row = Array.isArray(data) ? data[0] : data;
         if (row && (row.total !== undefined)) {
-          setViews({ total: Number(row.total), today: Number(row.today) });
+          const newTotal = Number(row.total);
+          setViews({ total: newTotal, today: Number(row.today) });
+          // Celebrate if THIS visit is the one that crossed a hundred (e.g. 299 → 300)
+          if (newTotal > 0 && newTotal % 100 === 0) setCelebrateTotal(newTotal);
         } else {
           // Fallback: read directly from table
           sb.from("page_views").select("total,today").eq("page_key", key).limit(1)
@@ -905,6 +1033,11 @@ function Tracker({ t, dark, go, country, area, progress, updStatus, updNote, use
       })
       .catch(e => { console.error("views error:", e); setViews({ total: null, today: null }); });
   }, [area, subcat]);
+
+  // Guard: if someone lands on a locked area, send them back to the area picker
+  useEffect(() => {
+    if (ad?.locked) go("area");
+  }, [ad, go]);
 
   // Load jobs — Sheet if configured, else demo data
   useEffect(() => {
@@ -938,6 +1071,10 @@ function Tracker({ t, dark, go, country, area, progress, updStatus, updNote, use
     notes:      j.notes || "",          // keep for display compatibility
     posted:     j.posted || null,
   }));
+
+  // "Empty sheet" = configured sheet that loaded with zero opportunities (not filtered).
+  // Shows the friendly "you're early" state instead of an empty table.
+  const sheetEmpty = !loading && merged.length === 0;
 
   // Cities: flatten all individual cities from comma/pipe/slash-separated regions
   const cities = ["Todas", ...Array.from(
@@ -1015,13 +1152,13 @@ function Tracker({ t, dark, go, country, area, progress, updStatus, updNote, use
     }
   };
 
-  const COL_SPAN = isEvent ? 6 : 11;
+  const COL_SPAN = isEvent ? 6 : 13;
 
   return (
     <div onClick={()=>setDropdown(null)} style={{ minHeight:"calc(100vh - 56px)" }}>
 
       {/* Header */}
-      <div style={{ padding:"22px 28px 0", borderBottom:"1px solid "+t.border }}>
+      <div style={{ padding:"22px 28px 14px", borderBottom:"1px solid "+t.border }}>
         <button onClick={()=>go("area")} style={{ background:"none", border:"none", color:t.muted, cursor:"pointer", fontSize:12, padding:0, marginBottom:6 }}>← Cambiar área</button>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end", flexWrap:"wrap", gap:12, marginBottom:16 }}>
           <div>
@@ -1032,19 +1169,20 @@ function Tracker({ t, dark, go, country, area, progress, updStatus, updNote, use
             {/* View counter — shown when data is available */}
             {views.total !== null && (
               <div style={{ display:"flex", alignItems:"center", gap:14, marginTop:6 }}>
-                <span style={{ fontSize:12, color:t.muted, display:"flex", alignItems:"center", gap:5 }}>
+                <span style={{ fontSize:12, color:t.muted, display:"flex", alignItems:"center", gap:5, position:"relative" }}>
                   <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M1 10s3.5-7 9-7 9 7 9 7-3.5 7-9 7-9-7-9-7z"/><circle cx="10" cy="10" r="3"/>
                   </svg>
-                  <strong style={{ color:t.textSec, fontVariantNumeric:"tabular-nums" }}>
-                    {views.total.toLocaleString("es-CL")}
+                  <strong style={{ color:t.textSec, fontVariantNumeric:"tabular-nums", position:"relative" }}>
+                    <CountUp value={views.total} />
+                    <ConfettiBurst trigger={celebrateTotal} />
                   </strong> visitas totales
                 </span>
                 <span style={{ fontSize:11, color:t.muted, opacity:.5 }}>·</span>
                 <span style={{ fontSize:12, color:t.muted, display:"flex", alignItems:"center", gap:4 }}>
                   <span style={{ width:7, height:7, borderRadius:"50%", background:"#16a34a", display:"inline-block", animation:"blink 2s infinite" }} />
                   <strong style={{ color:"#16a34a", fontVariantNumeric:"tabular-nums" }}>
-                    {views.today.toLocaleString("es-CL")}
+                    <CountUp value={views.today} duration={700} />
                   </strong> visitas hoy
                 </span>
               </div>
@@ -1064,7 +1202,7 @@ function Tracker({ t, dark, go, country, area, progress, updStatus, updNote, use
             const count = (areaData[k]||[]).length || (SHEET_URLS[area+"_"+k] ? "●" : 0);
             const active = subcat === k;
             return (
-              <button key={k} onClick={()=>setSubcat(k)}
+              <button key={k} onClick={()=>setSubcat(k)} className="press"
                 style={{ padding:"7px 16px", borderRadius:20, border:"1.5px solid "+(active?t.red:t.border), background:active?t.red:"transparent", color:active?"#fff":t.muted, fontSize:13, fontWeight:active?600:400, cursor:"pointer", fontFamily:"inherit", transition:"all .18s", display:"flex", alignItems:"center", gap:6, position:"relative" }}>
                 {!active && hasNew((area||"todas")+"_"+k, liveCounts) && (
                   <span style={{ position:"absolute", top:4, right:4, width:7, height:7, borderRadius:"50%", background:"#d4281a", boxShadow:"0 0 0 1.5px white" }} />
@@ -1089,11 +1227,18 @@ function Tracker({ t, dark, go, country, area, progress, updStatus, updNote, use
         ].map(s=>(
           <div key={s.label} style={{ background:t.card, border:"1px solid "+t.border, borderRadius:10, padding:"11px 16px", flex:1, minWidth:80 }}>
             <div style={{ fontSize:14, marginBottom:2 }}>{s.icon}</div>
-            <div style={{ fontSize:22, fontWeight:700, color:s.color, fontFamily:"'Sora',sans-serif", lineHeight:1 }}>{s.v}</div>
+            <div style={{ fontSize:22, fontWeight:700, color:s.color, fontFamily:"'Sora',sans-serif", lineHeight:1 }}>
+              <CountUp value={s.v} duration={650} />
+            </div>
             <div style={{ fontSize:10, color:t.muted, marginTop:2 }}>{s.label}</div>
           </div>
         ))}
       </div>
+
+      {/* Period info — explains what this kind of internship is about */}
+      {SUBCATEGORY_INFO[subcat] && (
+        <PeriodInfo info={SUBCATEGORY_INFO[subcat]} subcat={subcat} t={t} dark={dark} />
+      )}
 
       {/* Quick status chips — shows my progress at a glance */}
       {!isEvent && (() => {
@@ -1106,7 +1251,7 @@ function Tracker({ t, dark, go, country, area, progress, updStatus, updNote, use
             <span style={{ fontSize:11, color:t.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:".06em" }}>Mis postulaciones:</span>
             {["Interesado/a","Postulé","Entrevista","Oferta","Rechazado"].map(s => {
               if (!myCounts[s]) return null;
-              const sc = SS[s]||SS["Sin estado"];
+              const sc = statusColors(s, dark);
               const active = stFilt === s;
               return (
                 <button key={s} onClick={() => setStFilt(active ? "Todas" : s)}
@@ -1153,6 +1298,12 @@ function Tracker({ t, dark, go, country, area, progress, updStatus, updNote, use
           </>}
         </>}
         <span style={{ marginLeft:"auto", fontSize:12, color:t.muted }}>{filtered.length} resultado{filtered.length!==1?"s":""}</span>
+        {filtersActive && (
+          <button onClick={clearFilters} className="press" title="Limpiar todos los filtros"
+            style={{ background:"none", border:"1px solid "+t.border, borderRadius:8, padding:"5px 11px", cursor:"pointer", fontSize:11, color:t.muted, fontFamily:"inherit", fontWeight:600, display:"inline-flex", alignItems:"center", gap:5 }}>
+            ✕ Limpiar
+          </button>
+        )}
         {!isEvent && (() => {
           // If the sheet has defined groups, offer "Por tipo" vs "Por región" (no flat).
           // Otherwise offer "Por región" vs "Sin grupos".
@@ -1199,18 +1350,19 @@ function Tracker({ t, dark, go, country, area, progress, updStatus, updNote, use
       )}
 
       {/* Table / Cards */}
+      <div key={subcat} className="subcat-fade">
       {loading ? (
-        <div style={{ textAlign:"center", padding:60, color:t.muted }}>
-          <span className="spin-icon" style={{ fontSize:24 }}>⟳</span>
-          <div style={{ marginTop:12, fontSize:13 }}>Cargando desde Google Sheets…</div>
-        </div>
+        isMobile ? <MobileSkeleton t={t} dark={dark} /> : <TableSkeleton t={t} dark={dark} isEvent={isEvent} />
+      ) : sheetEmpty ? (
+        <EarlyState t={t} subcat={subcat} setSubcat={setSubcat} isEvent={isEvent} />
       ) : isMobile ? (
         <MobileCards
           groups={groups} hasGroups={hasGroups} collapsed={collapsed}
           toggleGroup={toggleGroup} isEvent={isEvent} t={t} dark={dark}
           dropdown={dropdown} setDropdown={setDropdown}
           updStatus={updStatus} user={user} setAuthOpen={setAuthOpen}
-          filtered={filtered}
+          filtered={filtered} filtersActive={filtersActive} clearFilters={clearFilters}
+          setInfoModal={setInfoModal}
         />
       ) : (
         <>
@@ -1220,18 +1372,38 @@ function Tracker({ t, dark, go, country, area, progress, updStatus, updNote, use
               <tr>
                 {(isEvent
                   ? ["Estado","Empresa","Evento","Región","Fecha","Link"]
-                  : ["Estado","Empresa","Rol","Región","Modalidad","Duración","Últ. apertura","Publicado","Cierre","Proceso","Notas","Link"]
-                ).map(h=>(
-                  <th key={h} style={{ background:t.thead, color:t.muted, fontSize:10, textTransform:"uppercase", letterSpacing:".07em", padding:"10px 14px", textAlign:"left", fontWeight:600, position:"sticky", top:0, zIndex:10, borderBottom:"1px solid "+t.border, whiteSpace:"nowrap" }}>{h}</th>
-                ))}
+                  : ["Estado","Empresa","Rol","Región","Modalidad","Duración","Apertura","Cierre","Etapa","Últ. Apertura","Proceso","Notas","Link"]
+                ).map(h=>{
+                  // Map header label → info key for the "?" button
+                  const infoKey = h==="Etapa" ? "stage" : h==="Últ. Apertura" ? "last_open" : h==="Proceso" ? "process" : null;
+                  return (
+                    <th key={h} style={{ background:t.thead, color:t.muted, fontSize:10, textTransform:"uppercase", letterSpacing:".07em", padding:"10px 14px", textAlign:"left", fontWeight:600, position:"sticky", top:0, zIndex:10, borderBottom:"1px solid "+t.border, whiteSpace:"nowrap" }}>
+                      <span style={{ display:"inline-flex", alignItems:"center" }}>
+                        {h}
+                        {infoKey && <InfoButton onClick={()=>setInfoModal(infoKey)} t={t} />}
+                      </span>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
               {filtered.length===0 ? (
-                <tr><td colSpan={COL_SPAN} style={{ textAlign:"center", padding:64, color:t.muted }}>
-                  <div style={{ fontSize:32, marginBottom:10 }}>📭</div>
-                  <div style={{ fontWeight:600, color:t.text, marginBottom:4 }}>Sin resultados</div>
-                  <div style={{ fontSize:12 }}>Prueba otro filtro o subcategoría</div>
+                <tr><td colSpan={COL_SPAN} style={{ textAlign:"center", padding:"72px 24px", color:t.muted }}>
+                  <div style={{ fontSize:38, marginBottom:12, opacity:.85 }}>{filtersActive ? "🔍" : "📭"}</div>
+                  <div style={{ fontWeight:700, color:t.text, marginBottom:6, fontSize:15, fontFamily:"'Sora',sans-serif" }}>
+                    {filtersActive ? "Sin coincidencias" : "Aún no hay oportunidades aquí"}
+                  </div>
+                  <div style={{ fontSize:13, maxWidth:340, margin:"0 auto", lineHeight:1.5 }}>
+                    {filtersActive
+                      ? "No encontramos oportunidades con estos filtros. Prueba ajustarlos o límpialos."
+                      : "Esta categoría se está llenando. Vuelve pronto o explora otra subcategoría."}
+                  </div>
+                  {filtersActive && (
+                    <button onClick={clearFilters} className="press" style={{ marginTop:18, background:t.pill, border:"1px solid "+t.border, borderRadius:9, padding:"8px 18px", cursor:"pointer", fontSize:13, color:t.text, fontFamily:"inherit", fontWeight:600 }}>
+                      Limpiar filtros
+                    </button>
+                  )}
                 </td></tr>
               ) : Object.entries(groups).map(([groupName, groupJobs]) => (
                 <GroupRows
@@ -1254,18 +1426,133 @@ function Tracker({ t, dark, go, country, area, progress, updStatus, updNote, use
         </div>
         </>
       )}
+      </div>
+
+      {/* Subtle feedback link — only when the sheet actually has content or is empty (not while loading) */}
+      {!loading && (
+        <div style={{ textAlign:"center", padding:"0 28px 48px" }}>
+          <button onClick={()=>setFeedbackOpen(true)}
+            style={{ background:"none", border:"none", cursor:"pointer", fontSize:12, color:t.faint, fontFamily:"inherit", textDecoration:"underline", textUnderlineOffset:3, transition:"color .15s" }}
+            onMouseEnter={e=>e.currentTarget.style.color=t.muted}
+            onMouseLeave={e=>e.currentTarget.style.color=t.faint}>
+            ¿Notaste algo incorrecto o faltante?
+          </button>
+        </div>
+      )}
+
+      {/* Column glossary modal */}
+      {infoModal && <InfoModal infoKey={infoModal} t={t} dark={dark} onClose={()=>setInfoModal(null)} />}
+
+      {/* Feedback modal */}
+      {feedbackOpen && <FeedbackModal t={t} dark={dark} area={area} subcat={subcat} onClose={()=>setFeedbackOpen(false)} />}
+    </div>
+  );
+}
+
+// ─── PERIOD INFO ──────────────────────────────────────────────────────────────
+// Collapsible panel explaining what each internship period involves.
+// Remembers the user's open/closed preference per subcategory.
+function PeriodInfo({ info, subcat, t, dark }) {
+  const storeKey = "mipasantia_periodinfo_" + subcat;
+  const [open, setOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem(storeKey);
+      return saved === null ? true : saved === "1"; // open by default
+    } catch { return true; }
+  });
+
+  const toggle = () => {
+    setOpen(o => {
+      const next = !o;
+      try { localStorage.setItem(storeKey, next ? "1" : "0"); } catch {}
+      return next;
+    });
+  };
+
+  return (
+    <div style={{ padding:"0 28px 16px" }}>
+      <div style={{ background:t.card, border:"1px solid "+t.border, borderRadius:12, overflow:"hidden" }}>
+        <button onClick={toggle}
+          style={{ width:"100%", display:"flex", alignItems:"center", gap:9, padding:"11px 15px", background:"none", border:"none", cursor:"pointer", fontFamily:"inherit", textAlign:"left" }}>
+          <span style={{ fontSize:16 }}>{info.icon}</span>
+          <span style={{ flex:1, fontSize:13, fontWeight:700, color:t.text, letterSpacing:"-.01em" }}>{info.title}</span>
+          <span style={{ fontSize:11, color:t.muted, transition:"transform .2s", display:"inline-block", transform: open ? "rotate(0deg)" : "rotate(-90deg)" }}>▼</span>
+        </button>
+        {open && (
+          <div className="group-expand" style={{ padding:"2px 15px 14px", display:"flex", flexDirection:"column", gap:8 }}>
+            {info.facts.map((f, i) => (
+              <div key={i} style={{ display:"flex", gap:10, alignItems:"flex-start", fontSize:12.5, lineHeight:1.55 }}>
+                <span style={{ flexShrink:0, fontSize:13, width:18, textAlign:"center" }}>{f.icon}</span>
+                <span style={{ color:t.textSec }}>
+                  <strong style={{ color:t.text, fontWeight:700 }}>{f.label}:</strong> {f.text}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── EARLY STATE (empty sheet) ────────────────────────────────────────────────
+// Shown when a subcategory's sheet has loaded but has zero opportunities yet.
+function EarlyState({ t, subcat, setSubcat, isEvent }) {
+  // Friendly, subcategory-aware message
+  const subcatName = SUBCATEGORY_LABELS[subcat]?.label || "estas oportunidades";
+  const isVerano = subcat === "verano";
+  const otherSubcats = Object.keys(SUBCATEGORY_LABELS).filter(k => k !== subcat);
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", textAlign:"center", padding:"64px 28px 80px", maxWidth:560, margin:"0 auto" }}>
+      <div style={{ fontSize:64, marginBottom:18, lineHeight:1 }}>🏎️</div>
+      <h2 style={{ fontFamily:"'Sora',sans-serif", fontSize:"clamp(22px,4vw,28px)", fontWeight:800, color:t.text, letterSpacing:"-.02em", marginBottom:12 }}>
+        ¡Parece que llegaste temprano!
+      </h2>
+      <p style={{ fontSize:15, color:t.textSec, lineHeight:1.6, marginBottom:14 }}>
+        Sabemos que la puntualidad es importante, pero esta vez te adelantaste un poco más.
+      </p>
+      <p style={{ fontSize:14, color:t.muted, lineHeight:1.65, marginBottom:28 }}>
+        {isVerano
+          ? "Las postulaciones para prácticas de verano 2027 suelen abrir entre Agosto y Octubre. Estate atento para cuando empiecen a aparecer nuevas oportunidades aquí. Por ahora, siéntete libre de revisar las Prácticas Profesionales, Intermedias y Eventos de esta misma área :)"
+          : `Aún no hay oportunidades cargadas en ${subcatName} para esta área. Vuelve pronto para ver nuevas oportunidades, o explora las otras subcategorías de esta misma área mientras tanto :)`}
+      </p>
+      <div style={{ display:"flex", gap:9, flexWrap:"wrap", justifyContent:"center" }}>
+        {otherSubcats.map(k => {
+          const info = SUBCATEGORY_LABELS[k];
+          return (
+            <button key={k} onClick={()=>setSubcat(k)} className="press"
+              style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"9px 16px", borderRadius:10, border:"1.5px solid "+t.border, background:t.card, color:t.text, fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"inherit", transition:"border-color .15s" }}
+              onMouseEnter={e=>e.currentTarget.style.borderColor=t.red}
+              onMouseLeave={e=>e.currentTarget.style.borderColor=t.border}>
+              <span>{info.icon}</span> {info.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 // ─── MOBILE CARDS ─────────────────────────────────────────────────────────────
-function MobileCards({ groups, hasGroups, collapsed, toggleGroup, isEvent, t, dark, dropdown, setDropdown, updStatus, user, setAuthOpen, filtered }) {
+function MobileCards({ groups, hasGroups, collapsed, toggleGroup, isEvent, t, dark, dropdown, setDropdown, updStatus, user, setAuthOpen, filtered, filtersActive, clearFilters, setInfoModal }) {
   if (filtered.length === 0) {
     return (
-      <div style={{ textAlign:"center", padding:"60px 28px", color:t.muted }}>
-        <div style={{ fontSize:32, marginBottom:10 }}>📭</div>
-        <div style={{ fontWeight:600, color:t.text, marginBottom:4 }}>Sin resultados</div>
-        <div style={{ fontSize:12 }}>Prueba otro filtro o subcategoría</div>
+      <div style={{ textAlign:"center", padding:"64px 28px", color:t.muted }}>
+        <div style={{ fontSize:38, marginBottom:12, opacity:.85 }}>{filtersActive ? "🔍" : "📭"}</div>
+        <div style={{ fontWeight:700, color:t.text, marginBottom:6, fontSize:15, fontFamily:"'Sora',sans-serif" }}>
+          {filtersActive ? "Sin coincidencias" : "Aún no hay oportunidades aquí"}
+        </div>
+        <div style={{ fontSize:13, maxWidth:300, margin:"0 auto", lineHeight:1.5 }}>
+          {filtersActive
+            ? "No encontramos oportunidades con estos filtros. Prueba ajustarlos o límpialos."
+            : "Esta categoría se está llenando. Vuelve pronto o explora otra subcategoría."}
+        </div>
+        {filtersActive && (
+          <button onClick={clearFilters} className="press" style={{ marginTop:18, background:t.pill, border:"1px solid "+t.border, borderRadius:9, padding:"8px 18px", cursor:"pointer", fontSize:13, color:t.text, fontFamily:"inherit", fontWeight:600 }}>
+            Limpiar filtros
+          </button>
+        )}
       </div>
     );
   }
@@ -1281,82 +1568,147 @@ function MobileCards({ groups, hasGroups, collapsed, toggleGroup, isEvent, t, da
               <span style={{ fontSize:11, background:t.pill, color:t.muted, padding:"1px 7px", borderRadius:10, border:"1px solid "+t.border }}>{groupJobs.length}</span>
             </button>
           )}
-          {!collapsed[groupName] && groupJobs.map(job => (
-            <MobileCard key={job.id} job={job} isEvent={isEvent} t={t} dark={dark}
-              dropdown={dropdown} setDropdown={setDropdown}
-              updStatus={updStatus} user={user} setAuthOpen={setAuthOpen} />
-          ))}
+          {!collapsed[groupName] && (
+            <div style={{ display:"flex", flexDirection:"column", gap:9 }}>
+              {groupJobs.map((job, ji) => (
+                <MobileCard key={job.id} job={job} isEvent={isEvent} t={t} dark={dark}
+                  dropdown={dropdown} setDropdown={setDropdown}
+                  updStatus={updStatus} user={user} setAuthOpen={setAuthOpen} rowIndex={ji}
+                  setInfoModal={setInfoModal} />
+              ))}
+            </div>
+          )}
         </div>
       ))}
     </div>
   );
 }
 
-function MobileCard({ job, isEvent, t, dark, dropdown, setDropdown, updStatus, user, setAuthOpen }) {
-  const sc = SS[job.status] || SS["Sin estado"];
+function MobileCard({ job, isEvent, t, dark, dropdown, setDropdown, updStatus, user, setAuthOpen, rowIndex = 0, setInfoModal }) {
+  const sc = statusColors(job.status, dark);
+  const [pulse, setPulse] = useState(false);
+  const [anchorRect, setAnchorRect] = useState(null);
+  const prevStatus = useRef(job.status);
+  useEffect(() => {
+    if (prevStatus.current !== job.status) {
+      prevStatus.current = job.status;
+      setPulse(true);
+      const timer = setTimeout(() => setPulse(false), 450);
+      return () => clearTimeout(timer);
+    }
+  }, [job.status]);
   const dl = deadlineInfo(job.deadline);
-  const rem = job.remote === "Remoto"  ? { color:"#16a34a", bg:"#f0fdf4" }
-            : job.remote === "Híbrido" ? { color:"#2563eb", bg:"#eff6ff" }
-            : { color:t.muted, bg:t.pill };
+  const rem = job.remote === "Remoto"  ? { color: dark ? "#4ade80" : "#16a34a", bg: dark ? "#12281c" : "#f0fdf4", border: dark ? "#1e4230" : "#bbf7d0" }
+            : job.remote === "Híbrido" ? { color: dark ? "#60a5fa" : "#2563eb", bg: dark ? "#16233d" : "#eff6ff", border: dark ? "#243b5e" : "#bfdbfe" }
+            : job.remote === "Presencial" ? { color: dark ? "#fb923c" : "#ea580c", bg: dark ? "#2a1a10" : "#fff7ed", border: dark ? "#452a15" : "#fed7aa" }
+            : { color:t.muted, bg:t.pill, border:t.border };
+  const regs = parseRegions(job.region);
+
+  // A labeled data row: small uppercase label on the left, value on the right.
+  // If `infoKey` is passed, shows a "?" button next to the label.
+  const DataRow = ({ label, infoKey, children }) => (
+    <div style={{ display:"flex", alignItems:"baseline", gap:10, fontSize:12.5 }}>
+      <span style={{ flexShrink:0, width:74, color:t.faint, fontSize:10.5, textTransform:"uppercase", letterSpacing:".05em", fontWeight:600, paddingTop:1, display:"inline-flex", alignItems:"center" }}>
+        {label}
+        {infoKey && setInfoModal && <InfoButton onClick={()=>setInfoModal(infoKey)} t={t} />}
+      </span>
+      <span style={{ flex:1, minWidth:0, color:t.textSec }}>{children}</span>
+    </div>
+  );
 
   return (
-    <div style={{ background:t.card, border:"1px solid "+t.border, borderRadius:12, padding:"14px 16px", position:"relative" }}
+    <div className="row-enter" style={{ background:t.card, border:"1px solid "+t.border, borderRadius:14, padding:"14px 15px", position:"relative", animationDelay: Math.min(rowIndex * 40, 400) + "ms" }}
       onClick={() => setDropdown(null)}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, marginBottom:6 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10, flex:1, minWidth:0 }}>
-          <CompanyLogo company={job.company} logo={job.logo} size={36} />
+
+      {/* Top: logo + company + role, and status badge */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, marginBottom:12 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:11, flex:1, minWidth:0 }}>
+          <CompanyLogo company={job.company} logo={job.logo} size={40} />
           <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontWeight:700, fontSize:14, color:t.text, marginBottom:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.company}</div>
-            <div style={{ fontSize:12, color:t.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.role}</div>
+            <div style={{ fontWeight:700, fontSize:15, color:t.text, marginBottom:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", letterSpacing:"-.01em" }}>{job.company}</div>
+            <div style={{ fontSize:12.5, color:t.muted, lineHeight:1.35 }}>{job.role}</div>
           </div>
         </div>
-        <div style={{ position:"relative", flexShrink:0 }} onClick={e=>e.stopPropagation()}>
-          <span onClick={()=>setDropdown(dropdown===job.id?null:job.id)}
-            style={{ background:sc.bg, color:sc.text, border:"1px solid "+sc.border, padding:"4px 10px", borderRadius:20, fontSize:11, fontWeight:500, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:4, userSelect:"none" }}>
+        <div style={{ flexShrink:0 }} onClick={e=>e.stopPropagation()}>
+          <span onClick={(e)=>{
+              const r = e.currentTarget.getBoundingClientRect();
+              setAnchorRect({ top:r.top, bottom:r.bottom, left:r.left, right:r.right });
+              setDropdown(dropdown===job.id?null:job.id);
+            }}
+            className={pulse ? "badge-pulse" : ""}
+            style={{ background:sc.bg, color:sc.text, border:"1px solid "+sc.border, padding:"4px 10px", borderRadius:20, fontSize:11, fontWeight:600, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:4, userSelect:"none", whiteSpace:"nowrap", transition:"background .2s, color .2s, border-color .2s" }}>
             {job.status} ▾
           </span>
-          {dropdown === job.id && (
-            <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", right:0, top:"calc(100% + 4px)", background:t.dropdown, border:"1px solid "+t.border, borderRadius:10, padding:5, zIndex:200, minWidth:148, boxShadow:"0 8px 32px rgba(0,0,0,.2)" }}>
-              {STATUS_OPTIONS.map(s => {
-                const st = SS[s]||SS["Sin estado"];
-                return (
-                  <div key={s} onClick={()=>{ updStatus(job.id, s, { company:job.company, role:job.role, region:job.region, link:job.link, logo:job.logo }); setDropdown(null); }}
-                    className="dd-item" style={{ padding:"8px 11px", borderRadius:7, cursor:"pointer", fontSize:13, color:st.text, display:"flex", alignItems:"center", gap:7 }}>
-                    <span style={{ width:7, height:7, borderRadius:"50%", background:st.text, flexShrink:0 }} />{s}
-                  </div>
-                );
-              })}
-              {!user && <div style={{ padding:"7px 11px", fontSize:11, color:t.muted, borderTop:"1px solid "+t.border, marginTop:4 }}>
-                <span style={{ cursor:"pointer", color:"#d4281a" }} onClick={()=>setAuthOpen(true)}>Inicia sesión</span> para guardar
-              </div>}
-            </div>
-          )}
+          <StatusDropdown
+            open={dropdown === job.id}
+            rect={anchorRect}
+            onClose={()=>setDropdown(null)}
+            onSelect={(s)=>updStatus(job.id, s, { company:job.company, role:job.role, region:job.region, link:job.link, logo:job.logo })}
+            t={t} dark={dark} user={user} setAuthOpen={setAuthOpen}
+          />
         </div>
       </div>
-      <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center", marginBottom: job.notes || job.link ? 8 : 0 }}>
-        {(() => {
-          const regs = parseRegions(job.region);
-          if (regs.length === 0) return null;
-          if (regs.length === 1) return <span style={{ fontSize:11, color:t.muted }}>📍 {regs[0]}</span>;
-          return <span style={{ fontSize:11, color:t.muted }}>📍 {regs.join(" · ")}</span>;
-        })()}
-        {job.remote && <span style={{ fontSize:11, background:rem.bg, color:rem.color, padding:"2px 7px", borderRadius:6, fontWeight:500 }}>{job.remote}</span>}
-        {job.duration && <span style={{ fontSize:11, color:t.muted }}>⏱ {job.duration}</span>}
-        {job.last_open && <span style={{ fontSize:11, color:t.muted }}>🕐 Abrió: {job.last_open}</span>}
-        {dl && <span style={{ fontSize:11, color:dl.color, fontWeight:500 }}>{dl.text}</span>}
+
+      {/* Labeled data rows */}
+      <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+        {isEvent ? (
+          <>
+            {regs.length > 0 && (
+              <DataRow label="Ubicación">
+                {regs.map((r,i)=>(
+                  <span key={i} style={{ display:"inline-block", background:t.pill, padding:"1px 7px", borderRadius:7, fontSize:11.5, border:"1px solid "+t.border, marginRight:4, marginBottom:2 }}>{r}</span>
+                ))}
+              </DataRow>
+            )}
+            {job.deadline && (
+              <DataRow label="Fecha">
+                <span style={{ color: dl?.color || t.textSec, fontWeight: dl ? 600 : 400 }}>{dl ? dl.text : job.deadline}</span>
+              </DataRow>
+            )}
+          </>
+        ) : (
+          <>
+            {regs.length > 0 && (
+              <DataRow label="Ubicación">
+                {regs.map((r,i)=>(
+                  <span key={i} style={{ display:"inline-block", background:t.pill, padding:"1px 7px", borderRadius:7, fontSize:11.5, border:"1px solid "+t.border, marginRight:4, marginBottom:2 }}>{r}</span>
+                ))}
+              </DataRow>
+            )}
+            {job.remote && (
+              <DataRow label="Modalidad">
+                <span style={{ background:rem.bg, color:rem.color, padding:"2px 9px", borderRadius:7, fontWeight:600, fontSize:11.5, border:"1px solid "+rem.border }}>{job.remote}</span>
+              </DataRow>
+            )}
+            {job.duration && <DataRow label="Duración">{job.duration}</DataRow>}
+            {job.posted && <DataRow label="Apertura">{job.posted}</DataRow>}
+            {job.deadline && (
+              <DataRow label="Cierre">
+                <span style={{ color: dl?.color || t.textSec, fontWeight: dl ? 600 : 400 }}>{dl ? dl.text : job.deadline}</span>
+              </DataRow>
+            )}
+            {job.stage && (
+              <DataRow label="Etapa" infoKey="stage">
+                <span style={{ background:t.pill, color:t.textSec, padding:"2px 9px", borderRadius:7, border:"1px solid "+t.border, fontWeight:500, fontSize:11.5 }}>{job.stage}</span>
+              </DataRow>
+            )}
+            {job.last_open && <DataRow label="Últ. apertura" infoKey="last_open">{job.last_open}</DataRow>}
+            {job.process && <DataRow label="Proceso" infoKey="process">{job.process}</DataRow>}
+            {(job.sheetNotes || job.notes) && <DataRow label="Notas">{job.sheetNotes || job.notes}</DataRow>}
+          </>
+        )}
       </div>
-      {job.notes && <div style={{ fontSize:12, color:t.muted, lineHeight:1.5, borderTop:"1px solid "+t.border, paddingTop:8 }}>{job.notes}</div>}
-      {job.process && (
-        <div style={{ fontSize:12, color:t.muted, lineHeight:1.5, marginTop:8, display:"flex", gap:6, alignItems:"flex-start" }}>
-          <span style={{ flexShrink:0 }}>🔄</span>
-          <span><strong style={{ color:t.textSec }}>Proceso:</strong> {job.process}</span>
-        </div>
-      )}
-      {job.link && (
+
+      {/* Postular button — or a clear "not open yet" state when there's no link */}
+      {job.link ? (
         <a href={job.link} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()}
-          style={{ display:"inline-flex", alignItems:"center", gap:5, marginTop:8, fontSize:12, color:"#2563eb", fontWeight:600, textDecoration:"none" }}>
+          style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, marginTop:13, padding:"9px 0", fontSize:13, color:"#fff", background:t.red, fontWeight:600, textDecoration:"none", borderRadius:9 }}>
           Postular ↗
         </a>
+      ) : (
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, marginTop:13, padding:"9px 0", fontSize:12.5, color:t.faint, background:t.pill, border:"1px solid "+t.border, fontWeight:600, borderRadius:9 }}>
+          Aún no disponible
+        </div>
       )}
     </div>
   );
@@ -1368,8 +1720,8 @@ function GroupRows({ groupName, jobs, hasGroups, collapsed, onToggle, colSpan, i
     <>
       {/* Group header row */}
       {hasGroups && (
-        <tr onClick={onToggle} style={{ cursor:"pointer", userSelect:"none" }}>
-          <td colSpan={colSpan} style={{ padding:"9px 14px", background: dark?"#0d0d1c":"#f1f5f9", borderBottom:"1px solid "+t.border, borderTop:"2px solid "+t.border }}>
+        <tr onClick={onToggle} className="group-header-row" style={{ cursor:"pointer", userSelect:"none" }}>
+          <td colSpan={colSpan} style={{ padding:"9px 14px", background: dark?"#0f0f11":"#f1f5f9", borderBottom:"1px solid "+t.border, borderTop:"2px solid "+t.border, transition:"background .18s" }}>
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               <span style={{ fontSize:11, color:t.muted, transition:"transform .2s", display:"inline-block", transform: collapsed?"rotate(-90deg)":"rotate(0deg)" }}>▼</span>
               <span style={{ fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:12, color:t.text, letterSpacing:".04em", textTransform:"uppercase" }}>{groupName}</span>
@@ -1380,11 +1732,11 @@ function GroupRows({ groupName, jobs, hasGroups, collapsed, onToggle, colSpan, i
       )}
 
       {/* Job rows */}
-      {!collapsed && jobs.map(job => (
+      {!collapsed && jobs.map((job, ji) => (
         <JobRow key={job.id} job={job} isEvent={isEvent} t={t} dark={dark}
           dropdown={dropdown} setDropdown={setDropdown}
           updStatus={updStatus} updNote={updNote}
-          user={user} setAuthOpen={setAuthOpen} />
+          user={user} setAuthOpen={setAuthOpen} rowIndex={ji} />
       ))}
     </>
   );
@@ -1440,9 +1792,108 @@ function CompanyLogo({ company, size = 28, logo }) {
   );
 }
 
+// ─── STATUS DROPDOWN ──────────────────────────────────────────────────────────
+// Rendered in a portal at document.body with position:fixed, using the badge's
+// rect captured AT CLICK TIME (passed via `rect`). No ref measuring, no timing
+// issues, immune to transformed/animated ancestors and table stacking contexts.
+function StatusDropdown({ open, rect, onSelect, onClose, t, dark, user, setAuthOpen, options, colorMap, renderLabel, showLoginHint = true }) {
+  const menuRef = useRef(null);
+  const opts = options || STATUS_OPTIONS;
+  const colors = colorMap || (dark ? SS_DARK : SS);
+
+  // Close on outside click / Escape / any scroll or resize (keeps position honest)
+  useEffect(() => {
+    if (!open) return;
+    const onDocPointer = (e) => {
+      if (menuRef.current && menuRef.current.contains(e.target)) return;
+      onClose();
+    };
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    const onScroll = () => onClose();
+    // Defer so the click that opened it doesn't instantly close it.
+    // Uses "click" (not mousedown) so badge toggles — which stopPropagation
+    // before reaching document — aren't closed-then-reopened.
+    const timer = setTimeout(() => {
+      document.addEventListener("click", onDocPointer);
+      document.addEventListener("keydown", onKey);
+      window.addEventListener("scroll", onScroll, true);
+      window.addEventListener("resize", onScroll);
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("click", onDocPointer);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [open, onClose]);
+
+  if (!open || !rect) return null;
+
+  // Geometry — all computed directly from the captured rect
+  const MENU_W = 178;
+  const MENU_H = opts.length * 36 + (showLoginHint && !user ? 40 : 0) + 12;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const openUp = (vh - rect.bottom < MENU_H + 12) && (rect.top > MENU_H + 12);
+  // Horizontal: prefer left-aligned to badge; flip to right-aligned if it would overflow
+  const alignRight = rect.left + MENU_W > vw - 8;
+  const left  = alignRight ? undefined : Math.max(8, rect.left);
+  const right = alignRight ? Math.max(8, vw - rect.right) : undefined;
+  const top    = openUp ? undefined : rect.bottom + 6;
+  const bottom = openUp ? (vh - rect.top + 6) : undefined;
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      onClick={e => e.stopPropagation()}
+      style={{
+        position: "fixed",
+        top, bottom, left, right,
+        background: t.dropdown,
+        border: "1px solid " + t.border,
+        borderRadius: 10,
+        padding: 5,
+        zIndex: 9999,
+        minWidth: 158,
+        maxWidth: 230,
+        boxShadow: "0 12px 40px rgba(0,0,0,.18)",
+        fontFamily: "'DM Sans', sans-serif",
+      }}
+    >
+      {opts.map(s => {
+        const st = colors[s] || colors["Sin estado"];
+        return (
+          <div key={s} onClick={() => { onSelect(s); onClose(); }} className="dd-item"
+            style={{ padding: "8px 12px", borderRadius: 7, cursor: "pointer", fontSize: 13, color: st.text, display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: st.text, flexShrink: 0 }} />{renderLabel ? renderLabel(s) : s}
+          </div>
+        );
+      })}
+      {showLoginHint && !user && (
+        <div style={{ padding: "8px 12px", fontSize: 11, color: t.muted, borderTop: "1px solid " + t.border, marginTop: 4 }}>
+          <span style={{ cursor: "pointer", color: "#d4281a" }} onClick={() => setAuthOpen(true)}>Inicia sesión</span> para guardar
+        </div>
+      )}
+    </div>,
+    document.body
+  );
+}
+
 // ─── JOB ROW ──────────────────────────────────────────────────────────────────
-function JobRow({ job, isEvent, t, dark, dropdown, setDropdown, updStatus, updNote, user, setAuthOpen }) {
-  const sc  = SS[job.status] || SS["Sin estado"];
+function JobRow({ job, isEvent, t, dark, dropdown, setDropdown, updStatus, updNote, user, setAuthOpen, rowIndex = 0 }) {
+  const sc  = statusColors(job.status, dark);
+  const [pulse, setPulse] = useState(false);
+  const [anchorRect, setAnchorRect] = useState(null);
+  const prevStatus = useRef(job.status);
+  useEffect(() => {
+    if (prevStatus.current !== job.status) {
+      prevStatus.current = job.status;
+      setPulse(true);
+      const timer = setTimeout(() => setPulse(false), 450);
+      return () => clearTimeout(timer);
+    }
+  }, [job.status]);
   const dl  = deadlineInfo(job.deadline);
   const ps  = postedStyle(job.posted, job.deadline);
   const rem = job.remote==="Remoto"  ? {bg:"#f0fdf4",text:"#16a34a"}
@@ -1450,36 +1901,25 @@ function JobRow({ job, isEvent, t, dark, dropdown, setDropdown, updStatus, updNo
             : {bg:t.pill,text:t.muted};
 
   return (
-    <tr className="trow" style={{ borderBottom:"1px solid "+t.border }}>
+    <tr className="trow row-enter" style={{ borderBottom:"1px solid "+t.border, animationDelay: Math.min(rowIndex * 25, 400) + "ms" }}>
       {/* STATUS — first column like Trackr */}
-      <td style={{ padding:"10px 12px", position:"relative" }} onClick={e=>e.stopPropagation()}>
-        <span onClick={()=>setDropdown(dropdown===job.id?null:job.id)}
-          style={{ background:sc.bg, color:sc.text, border:"1px solid "+sc.border, padding:"4px 10px", borderRadius:20, fontSize:11, fontWeight:500, cursor:"pointer", whiteSpace:"nowrap", display:"inline-flex", alignItems:"center", gap:4, userSelect:"none" }}>
+      <td style={{ padding:"10px 12px" }} onClick={e=>e.stopPropagation()}>
+        <span onClick={(e)=>{
+            const r = e.currentTarget.getBoundingClientRect();
+            setAnchorRect({ top:r.top, bottom:r.bottom, left:r.left, right:r.right });
+            setDropdown(dropdown===job.id?null:job.id);
+          }}
+          className={pulse ? "badge-pulse" : ""}
+          style={{ background:sc.bg, color:sc.text, border:"1px solid "+sc.border, padding:"4px 10px", borderRadius:20, fontSize:11, fontWeight:500, cursor:"pointer", whiteSpace:"nowrap", display:"inline-flex", alignItems:"center", gap:4, userSelect:"none", transition:"background .2s, color .2s, border-color .2s" }}>
           {job.status} ▾
         </span>
-        {dropdown===job.id && (
-          <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", background:t.dropdown, border:"1px solid "+t.border, borderRadius:10, padding:5, zIndex:200, minWidth:148, boxShadow:"0 12px 40px rgba(0,0,0,.15)", top:"calc(100% + 2px)", left:0 }}>
-            {STATUS_OPTIONS.map(s=>{
-              const st = SS[s]||SS["Sin estado"];
-              return (
-                <div key={s} onClick={()=>{
-                  updStatus(job.id, s, {
-                    company: job.company, role: job.role,
-                    region: job.region, link: job.link,
-                    logo: job.logo,
-                  });
-                  setDropdown(null);
-                }} className="dd-item"
-                  style={{ padding:"7px 11px", borderRadius:7, cursor:"pointer", fontSize:12, color:st.text, display:"flex", alignItems:"center", gap:7 }}>
-                  <span style={{ width:7, height:7, borderRadius:"50%", background:st.text, flexShrink:0 }} />{s}
-                </div>
-              );
-            })}
-            {!user && <div style={{ padding:"7px 11px", fontSize:11, color:t.muted, borderTop:"1px solid "+t.border, marginTop:4 }}>
-              <span style={{ cursor:"pointer", color:t.red }} onClick={()=>setAuthOpen(true)}>Inicia sesión</span> para guardar
-            </div>}
-          </div>
-        )}
+        <StatusDropdown
+          open={dropdown===job.id}
+          rect={anchorRect}
+          onClose={()=>setDropdown(null)}
+          onSelect={(s)=>updStatus(job.id, s, { company: job.company, role: job.role, region: job.region, link: job.link, logo: job.logo })}
+          t={t} dark={dark} user={user} setAuthOpen={setAuthOpen}
+        />
       </td>
       <td style={{ padding:"10px 14px", fontWeight:600, color:t.text, whiteSpace:"nowrap" }}>
         <span style={{ display:"inline-flex", alignItems:"center", gap:9 }}>
@@ -1511,15 +1951,26 @@ function JobRow({ job, isEvent, t, dark, dropdown, setDropdown, updStatus, updNo
         <>
           <td style={{ padding:"10px 14px" }}><span style={{ background:rem.bg, color:rem.text, padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500 }}>{job.remote}</span></td>
           <td style={{ padding:"10px 14px", color:t.muted, fontSize:12, whiteSpace:"nowrap" }}>{job.duration}</td>
+          {/* Apertura */}
+          <td style={{ padding:"10px 14px", fontSize:12, whiteSpace:"nowrap", ...ps }}>
+            {job.posted || <span style={{color:t.faint}}>—</span>}
+          </td>
+          {/* Cierre */}
+          <td style={{ padding:"10px 14px", fontSize:12, color:dl?.color||t.muted, whiteSpace:"nowrap" }}>
+            {dl ? dl.text : <span style={{color:t.faint}}>—</span>}
+          </td>
+          {/* Etapa */}
+          <td style={{ padding:"10px 14px", fontSize:12, color:t.muted, whiteSpace:"nowrap" }}>
+            {job.stage
+              ? <span style={{ background:t.pill, padding:"3px 9px", borderRadius:8, fontSize:11, fontWeight:500, border:"1px solid "+t.border }}>{job.stage}</span>
+              : <span style={{color:t.faint}}>—</span>}
+          </td>
+          {/* Últ. Apertura */}
           <td style={{ padding:"10px 14px", fontSize:12, whiteSpace:"nowrap", color:t.muted }}>
             {job.last_open
               ? <span title="Última vez que abrió este cargo">{job.last_open}</span>
               : <span style={{color:t.faint}}>—</span>}
           </td>
-          <td style={{ padding:"10px 14px", fontSize:12, whiteSpace:"nowrap", ...ps }}>
-            {job.posted || <span style={{color:t.faint}}>—</span>}
-          </td>
-          <td style={{ padding:"10px 14px", fontSize:12, color:dl?.color||t.muted, whiteSpace:"nowrap" }}>{dl?dl.text:<span style={{color:t.faint}}>—</span>}</td>
           <td style={{ padding:"10px 14px", maxWidth:200, color:t.muted, fontSize:12 }}>
             {job.process || <span style={{ color:t.faint }}>—</span>}
           </td>
@@ -1530,15 +1981,52 @@ function JobRow({ job, isEvent, t, dark, dropdown, setDropdown, updStatus, updNo
       )}
 
       <td style={{ padding:"10px 14px" }}>
-        <a href={job.link} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()}
-          style={{ color:t.accent, textDecoration:"none", fontSize:13, fontWeight:500, whiteSpace:"nowrap" }}>
-          Postular ↗
-        </a>
+        {job.link ? (
+          <a href={job.link} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()}
+            style={{ color:t.accent, textDecoration:"none", fontSize:13, fontWeight:500, whiteSpace:"nowrap" }}>
+            Postular ↗
+          </a>
+        ) : (
+          <span title="Esta oportunidad todavía no tiene link de postulación"
+            style={{ color:t.faint, fontSize:12, whiteSpace:"nowrap", background:t.pill, border:"1px solid "+t.border, padding:"3px 9px", borderRadius:7 }}>
+            Aún no disponible
+          </span>
+        )}
       </td>
     </tr>
   );
 }
 
+
+// ─── PROFILE STATUS BADGE ─────────────────────────────────────────────────────
+// Badge + portal dropdown for the profile applications list.
+function ProfileStatusBadge({ status, jobId, t, dark, onSelect, open, setOpen }) {
+  const [anchorRect, setAnchorRect] = useState(null);
+  const sc = statusColors(status === "Sin estado" ? "Interesado/a" : status, dark);
+  const options = ["Sin estado", "Interesado/a", "Postulé", "Entrevista", "Oferta", "Rechazado"];
+  return (
+    <div onClick={e => e.stopPropagation()}>
+      <span onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setAnchorRect({ top:r.top, bottom:r.bottom, left:r.left, right:r.right });
+          setOpen(!open);
+        }}
+        style={{ background: sc.bg, color: sc.text, border: "1px solid " + sc.border, padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, userSelect: "none" }}>
+        {status} ▾
+      </span>
+      <StatusDropdown
+        open={open}
+        rect={anchorRect}
+        onClose={() => setOpen(false)}
+        onSelect={onSelect}
+        options={options}
+        renderLabel={(s) => s === "Sin estado" ? "🗑 Quitar de mi lista" : s}
+        showLoginHint={false}
+        t={t} dark={dark}
+      />
+    </div>
+  );
+}
 
 // ─── PROFILE ──────────────────────────────────────────────────────────────────
 function Profile({ t, dark, go, user, progress, setUser, setProgress }) {
@@ -1681,15 +2169,6 @@ function Profile({ t, dark, go, user, progress, setUser, setProgress }) {
   // Collect all jobs that have a non-neutral status
   const ACTIVE_STATUSES = ["Interesado/a","Postulé","Entrevista","Oferta","Rechazado"];
 
-  const SS_COLORS = {
-    "Sin estado":   { bg: "#f1f5f9", text: "#94a3b8", border: "#e2e8f0" },
-    "Interesado/a": { bg: "#eff6ff", text: "#2563eb", border: "#bfdbfe" },
-    "Postulé":      { bg: "#f0fdf4", text: "#16a34a", border: "#bbf7d0" },
-    "Entrevista":   { bg: "#fffbeb", text: "#d97706", border: "#fde68a" },
-    "Oferta":       { bg: "#faf5ff", text: "#7c3aed", border: "#e9d5ff" },
-    "Rechazado":    { bg: "#fff1f2", text: "#e11d48", border: "#fecdd3" },
-  };
-
   const applications = Object.entries(progress)
     .filter(([, v]) => ACTIVE_STATUSES.includes(v?.status))
     .map(([jobId, v]) => ({ jobId, ...v }));
@@ -1788,7 +2267,9 @@ function Profile({ t, dark, go, user, progress, setUser, setProgress }) {
           { label: "Rechazos",       v: stats.rechazados,  color: "#e11d48" },
         ].map(s => (
           <div key={s.label} style={{ background: t.card, border: "1px solid " + t.border, borderRadius: 10, padding: "12px 18px", flex: 1, minWidth: 100 }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: s.color, fontFamily: "'Sora',sans-serif", lineHeight: 1 }}>{s.v}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: s.color, fontFamily: "'Sora',sans-serif", lineHeight: 1 }}>
+              <CountUp value={s.v} duration={650} />
+            </div>
             <div style={{ fontSize: 11, color: t.muted, marginTop: 3 }}>{s.label}</div>
           </div>
         ))}
@@ -1822,7 +2303,6 @@ function Profile({ t, dark, go, user, progress, setUser, setProgress }) {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {applications.map(({ jobId, status, company, role, region, link, logo }) => {
-                const sc   = SS_COLORS[status] || SS_COLORS["Interesado/a"];
                 return (
                   <div key={jobId} style={{ background: t.card, border: "1px solid " + t.border, borderRadius: 12, padding: "16px 20px", transition: "box-shadow .18s" }}
                     onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,.08)"}
@@ -1839,27 +2319,12 @@ function Profile({ t, dark, go, user, progress, setUser, setProgress }) {
                             </div>
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            {/* Status badge — clickable dropdown */}
-                            <div style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
-                              <span onClick={() => setProfDropdown(profDropdown === jobId ? null : jobId)}
-                                style={{ background: sc.bg, color: sc.text, border: "1px solid " + sc.border, padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, userSelect: "none" }}>
-                                {status} ▾
-                              </span>
-                              {profDropdown === jobId && (
-                                <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: t.dropdown, border: "1px solid " + t.border, borderRadius: 10, padding: 5, zIndex: 200, minWidth: 148, boxShadow: "0 8px 32px rgba(0,0,0,.15)" }}>
-                                  {["Sin estado", ...ACTIVE_STATUSES].map(s => {
-                                    const st = SS_COLORS[s]||SS_COLORS["Sin estado"];
-                                    return (
-                                      <div key={s} onClick={() => changeStatus(jobId, s)} className="dd-item"
-                                        style={{ padding: "7px 11px", borderRadius: 7, cursor: "pointer", fontSize: 12, color: st.text, display: "flex", alignItems: "center", gap: 7 }}>
-                                        <span style={{ width: 7, height: 7, borderRadius: "50%", background: st.text, flexShrink: 0 }} />
-                                        {s === "Sin estado" ? "🗑 Quitar de mi lista" : s}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
+                            <ProfileStatusBadge
+                              status={status} jobId={jobId} t={t} dark={dark}
+                              onSelect={(s) => changeStatus(jobId, s)}
+                              open={profDropdown === jobId}
+                              setOpen={(v) => setProfDropdown(v ? jobId : null)}
+                            />
                             {d.link && (
                               <a href={d.link} target="_blank" rel="noopener noreferrer"
                                 style={{ color: t.accent, fontSize: 12, textDecoration: "none", fontWeight: 500 }}>
@@ -1998,6 +2463,571 @@ function Profile({ t, dark, go, user, progress, setUser, setProgress }) {
 }
 
 
+// ─── ABOUT ────────────────────────────────────────────────────────────────────
+function About({ t, go }) {
+  return (
+    <div style={{ maxWidth:760, margin:"0 auto", padding:"56px 24px 80px" }}>
+      <button onClick={()=>go("landing")} style={{ background:"none", border:"none", color:t.muted, cursor:"pointer", fontSize:13, padding:0, marginBottom:24 }}>← Volver</button>
+      <h1 style={{ fontFamily:"'Sora',sans-serif", fontSize:"clamp(32px,5vw,48px)", fontWeight:800, color:t.text, letterSpacing:"-.03em", lineHeight:1.1, marginBottom:14 }}>
+        Sobre <span style={{ color:t.red }}>Mi</span>Pasantía
+      </h1>
+      <p style={{ fontSize:17, color:t.muted, lineHeight:1.6, marginBottom:36 }}>
+        Una plataforma curada para estudiantes que buscan su próxima práctica profesional en Chile y LATAM.
+      </p>
+
+      <section style={{ marginBottom:32 }}>
+        <h2 style={{ fontFamily:"'Sora',sans-serif", fontSize:22, fontWeight:700, color:t.text, marginBottom:12, letterSpacing:"-.01em" }}>¿Por qué existe?</h2>
+        <p style={{ fontSize:15, color:t.textSec, lineHeight:1.7 }}>
+          Buscar prácticas en Chile es agotador. Los portales de empleo están saturados, los grupos de WhatsApp son caóticos, y muchas oportunidades buenas pasan desapercibidas porque no están en un solo lugar. MiPasantía nace para resolver eso: un mapa claro y actualizado de las mejores oportunidades, con seguimiento personal incluido.
+        </p>
+      </section>
+
+      <section style={{ marginBottom:32 }}>
+        <h2 style={{ fontFamily:"'Sora',sans-serif", fontSize:22, fontWeight:700, color:t.text, marginBottom:12, letterSpacing:"-.01em" }}>¿Cómo funciona?</h2>
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          {[
+            { n:"1", t:"Curamos a mano", d:"Revisamos las páginas oficiales de cientos de empresas para encontrar prácticas reales y vigentes en Chile y LATAM." },
+            { n:"2", t:"Organizamos por área y modalidad", d:"Verano, Profesional, Off-Cycle y Eventos. Y cada subcategoría con sus grupos (Bulge Bracket, MBB, Big Tech, etc.)." },
+            { n:"3", t:"Guardas tu progreso", d:"Marca el estado de cada oportunidad (Interesado, Postulé, Entrevista, Oferta). Se sincroniza entre todos tus dispositivos." },
+            { n:"4", t:"Te avisamos cuando algo cierra", d:"Si tienes prácticas guardadas que están por cerrar, te llega un email para que no las dejes pasar." },
+          ].map(s => (
+            <div key={s.n} style={{ display:"flex", gap:14, padding:"14px 0" }}>
+              <div style={{ width:36, height:36, borderRadius:"50%", background:t.red, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:15, fontWeight:700, flexShrink:0 }}>{s.n}</div>
+              <div>
+                <div style={{ fontSize:15, fontWeight:700, color:t.text, marginBottom:3 }}>{s.t}</div>
+                <div style={{ fontSize:14, color:t.muted, lineHeight:1.5 }}>{s.d}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section style={{ marginBottom:32 }}>
+        <h2 style={{ fontFamily:"'Sora',sans-serif", fontSize:22, fontWeight:700, color:t.text, marginBottom:12, letterSpacing:"-.01em" }}>¿Cuesta algo?</h2>
+        <p style={{ fontSize:15, color:t.textSec, lineHeight:1.7 }}>
+          No. Es gratis y siempre lo será para los estudiantes. En el futuro podríamos ofrecer alertas personalizadas en una cuenta Pro opcional, pero las oportunidades y el seguimiento básico van a ser siempre libres y accesibles.
+        </p>
+      </section>
+
+      <section style={{ marginBottom:32 }}>
+        <h2 style={{ fontFamily:"'Sora',sans-serif", fontSize:22, fontWeight:700, color:t.text, marginBottom:12, letterSpacing:"-.01em" }}>¿Conoces una práctica que no está?</h2>
+        <p style={{ fontSize:15, color:t.textSec, lineHeight:1.7, marginBottom:16 }}>
+          Si encontraste una oportunidad que crees deberíamos agregar, escríbenos. Las mejores recomendaciones siempre vienen de la misma comunidad estudiantil.
+        </p>
+        <a href="mailto:contacto@mipasantia.cl" style={{ display:"inline-flex", alignItems:"center", gap:8, color:t.red, fontSize:15, fontWeight:600, textDecoration:"none", borderBottom:"2px solid "+t.red, paddingBottom:2 }}>
+          contacto@mipasantia.cl →
+        </a>
+      </section>
+
+      {/* Creator section */}
+      <section style={{ marginTop:48, padding:"36px 0", borderTop:"1px solid "+t.border }}>
+        <div style={{ fontSize:11, color:t.faint, textTransform:"uppercase", letterSpacing:".09em", fontWeight:700, marginBottom:18, textAlign:"center" }}>
+          Sobre el creador
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", textAlign:"center", gap:18 }}>
+          {/* Photo from Supabase Storage — upload as "creator.png" to the `logos` bucket
+              or create a separate bucket. The component falls back gracefully if missing. */}
+          <CreatorPhoto t={t} />
+          <div>
+            <div style={{ fontFamily:"'Sora',sans-serif", fontSize:20, fontWeight:700, color:t.text, letterSpacing:"-.02em", marginBottom:4 }}>
+              Matt 🇨🇱
+            </div>
+            <div style={{ fontSize:13, color:t.muted }}>
+              Fundador de MiPasantía
+            </div>
+          </div>
+          <p style={{ fontSize:14, color:t.textSec, lineHeight:1.7, maxWidth:520, margin:"4px 0" }}>
+            Estudiante chileno que se cansó de buscar oportunidades dispersas entre portales, grupos de WhatsApp y posts random de LinkedIn. Construí MiPasantía para que ningún estudiante pierda una buena oportunidad por no haberla visto a tiempo.
+          </p>
+
+          {/* Experiences */}
+          <div style={{ width:"100%", maxWidth:560, marginTop:20 }}>
+            <div style={{ fontSize:11, color:t.faint, textTransform:"uppercase", letterSpacing:".09em", fontWeight:700, marginBottom:14, textAlign:"left" }}>
+              Experiencias recientes
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+              {[
+                {
+                  logo: "ms",
+                  role: "Japan Early Insights",
+                  company: "Morgan Stanley",
+                  date: "Marzo – Mayo 2026",
+                  location: null,
+                  desc: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
+                },
+                {
+                  logo: "barclays",
+                  role: "Spring Operations Intern",
+                  company: "Barclays",
+                  date: "Abril 2026",
+                  location: "Glasgow, UK",
+                  desc: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut enim ad minim veniam, quis nostrud exercitation ullamco.",
+                },
+                {
+                  logo: "loreal",
+                  role: "Spring Intern",
+                  company: "L'Oréal",
+                  date: "Abril 2026",
+                  location: "London, UK",
+                  desc: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Duis aute irure dolor in reprehenderit in voluptate velit.",
+                },
+              ].map((exp, i) => (
+                <div key={i} style={{ display:"flex", gap:14, padding:"14px 16px", background:t.card, border:"1px solid "+t.border, borderRadius:12, textAlign:"left", alignItems:"flex-start", transition:"box-shadow .18s, transform .18s" }}
+                  onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 6px 22px rgba(0,0,0,.06)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.transform = "translateY(0)"; }}>
+                  <CompanyLogo company={exp.company} logo={exp.logo} size={44} />
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:14, fontWeight:700, color:t.text, marginBottom:2 }}>{exp.role}</div>
+                    <div style={{ fontSize:13, color:t.muted, marginBottom:4 }}>
+                      {exp.company}
+                      {exp.location && <span style={{ color:t.faint }}> · {exp.location}</span>}
+                    </div>
+                    <div style={{ fontSize:11, color:t.faint, marginBottom:8, fontWeight:500 }}>{exp.date}</div>
+                    <p style={{ fontSize:13, color:t.textSec, lineHeight:1.55, margin:0 }}>{exp.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display:"flex", gap:12, flexWrap:"wrap", justifyContent:"center", marginTop:18 }}>
+            <a href="https://www.linkedin.com/in/TU-USUARIO" target="_blank" rel="noopener noreferrer"
+              style={{ display:"inline-flex", alignItems:"center", gap:8, padding:"10px 20px", borderRadius:10, background:"#0a66c2", color:"#fff", textDecoration:"none", fontSize:14, fontWeight:600, fontFamily:"inherit", transition:"transform .15s, box-shadow .15s" }}
+              onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 18px rgba(10,102,194,.3)"; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "none"; }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M20.45 20.45h-3.55v-5.56c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.13 1.45-2.13 2.95v5.65H9.36V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28zM5.34 7.43c-1.14 0-2.07-.93-2.07-2.07s.93-2.07 2.07-2.07 2.07.93 2.07 2.07-.93 2.07-2.07 2.07zm1.78 13.02H3.56V9h3.56v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.72v20.56C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.72V1.72C24 .77 23.2 0 22.22 0z"/></svg>
+              LinkedIn
+            </a>
+            <a href="https://link-a-tu-cv.com" target="_blank" rel="noopener noreferrer"
+              style={{ display:"inline-flex", alignItems:"center", gap:8, padding:"10px 20px", borderRadius:10, background:t.card, border:"1.5px solid "+t.border, color:t.text, textDecoration:"none", fontSize:14, fontWeight:600, fontFamily:"inherit", transition:"transform .15s, box-shadow .15s" }}
+              onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 18px rgba(0,0,0,.08)"; e.currentTarget.style.borderColor = t.red; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.borderColor = t.border; }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              Mi CV
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <div style={{ marginTop:24, padding:"28px 0 0", borderTop:"1px solid "+t.border, fontSize:13, color:t.faint, textAlign:"center" }}>
+        Hecho con cariño en Chile 🇨🇱 · MiPasantía · {new Date().getFullYear()}
+      </div>
+    </div>
+  );
+}
+
+// Creator photo — loads from Supabase Storage `logos/creator.png`
+function CreatorPhoto({ t }) {
+  const [failed, setFailed] = useState(false);
+  const url = !failed && SUPABASE_URL
+    ? `${SUPABASE_URL}/storage/v1/object/public/logos/creator.png`
+    : null;
+
+  const fallbackStyle = {
+    width: 110, height: 110, borderRadius: "50%",
+    background: "linear-gradient(135deg, " + t.red + ", #6644cc)",
+    color: "#fff",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    fontSize: 42, fontWeight: 700, fontFamily: "'Sora', sans-serif",
+    border: "3px solid " + t.card, boxShadow: "0 8px 28px rgba(212,40,26,.18)",
+  };
+
+  if (failed || !url) {
+    return <div style={fallbackStyle}>M</div>;
+  }
+  return (
+    <img
+      src={url}
+      alt="Matt — creador de MiPasantía"
+      onError={() => setFailed(true)}
+      style={{ width: 110, height: 110, borderRadius: "50%", objectFit: "cover", border: "3px solid " + t.card, boxShadow: "0 8px 28px rgba(0,0,0,.12)" }}
+    />
+  );
+}
+
+// ─── 404 ──────────────────────────────────────────────────────────────────────
+function NotFound({ t, go }) {
+  return (
+    <div style={{ minHeight:"calc(100vh - 56px)", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+      <div style={{ textAlign:"center", maxWidth:480 }}>
+        <div style={{ fontSize:96, fontFamily:"'Sora',sans-serif", fontWeight:800, color:t.red, lineHeight:1, letterSpacing:"-.05em", marginBottom:8 }}>404</div>
+        <h1 style={{ fontFamily:"'Sora',sans-serif", fontSize:26, fontWeight:700, color:t.text, marginBottom:10, letterSpacing:"-.02em" }}>
+          Esta página se nos perdió
+        </h1>
+        <p style={{ fontSize:15, color:t.muted, lineHeight:1.6, marginBottom:28 }}>
+          Quizá seguiste un link viejo o escribiste mal la dirección. Volvamos al inicio y buscamos tu próxima pasantía.
+        </p>
+        <button onClick={()=>go("landing")} className="cta" style={{ fontSize:14, padding:"12px 28px" }}>
+          Ir al inicio →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+// ─── COUNT UP ─────────────────────────────────────────────────────────────────
+// Animates a number counting up to target when it mounts or target changes.
+function CountUp({ value, duration = 900, style }) {
+  const [display, setDisplay] = useState(0);
+  const prevRef = useRef(0);
+
+  useEffect(() => {
+    if (value == null || isNaN(value)) return;
+    const start = prevRef.current;
+    const end = Number(value);
+    prevRef.current = end;
+    if (start === end) { setDisplay(end); return; }
+
+    let raf;
+    const t0 = performance.now();
+    const tick = (now) => {
+      const p = Math.min((now - t0) / duration, 1);
+      // easeOutExpo for a satisfying deceleration
+      const eased = p === 1 ? 1 : 1 - Math.pow(2, -10 * p);
+      setDisplay(Math.round(start + (end - start) * eased));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value, duration]);
+
+  return <span style={style}>{display.toLocaleString("es-CL")}</span>;
+}
+
+// ─── CONFETTI BURST ───────────────────────────────────────────────────────────
+// Fires a small celebratory emoji burst when `trigger` changes to a new value.
+// The parent only sets the trigger when the user's OWN visit lands exactly on a
+// multiple of 100 (their view took the counter e.g. 299 → 300), so there are no
+// false positives from tab switches or reloads.
+function ConfettiBurst({ trigger }) {
+  const [burst, setBurst] = useState(false);
+  const lastTrigger = useRef(null);
+
+  useEffect(() => {
+    if (trigger == null) return;
+    if (trigger === lastTrigger.current) return; // already celebrated this milestone
+    lastTrigger.current = trigger;
+    setBurst(true);
+    const timer = setTimeout(() => setBurst(false), 2200);
+    return () => clearTimeout(timer);
+  }, [trigger]);
+
+  if (!burst) return null;
+
+  const emojis = ["🎉", "🎊", "✨", "🎉", "⭐", "🎊", "✨", "🎉"];
+  return (
+    <span aria-hidden style={{ position:"absolute", left:"50%", top:"50%", width:0, height:0, pointerEvents:"none", zIndex:50 }}>
+      {emojis.map((e, i) => {
+        const angle = (i / emojis.length) * 2 * Math.PI;
+        const dist = 34 + (i % 3) * 10;
+        const dx = Math.cos(angle) * dist;
+        const dy = Math.sin(angle) * dist - 10; // bias upward
+        return (
+          <span key={i} className="confetti-piece"
+            style={{ position:"absolute", fontSize:13, "--dx": dx+"px", "--dy": dy+"px", animationDelay:(i*30)+"ms" }}>
+            {e}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+// ─── SKELETONS ────────────────────────────────────────────────────────────────
+// Shimmer bar used inside skeletons
+function Shimmer({ w = "100%", h = 12, r = 6, style = {} }) {
+  return (
+    <span className="skeleton-shimmer" style={{ display:"inline-block", width:w, height:h, borderRadius:r, ...style }} />
+  );
+}
+
+function TableSkeleton({ t, dark, isEvent }) {
+  const cols = isEvent ? 6 : 13;
+  const rows = 8;
+  const headers = isEvent
+    ? ["Estado","Empresa","Evento","Región","Fecha","Link"]
+    : ["Estado","Empresa","Rol","Región","Modalidad","Duración","Apertura","Cierre","Etapa","Últ. Apertura","Proceso","Notas","Link"];
+  return (
+    <div style={{ overflowX:"auto", padding:"0 28px 60px" }}>
+      <table style={{ borderCollapse:"collapse", width:"100%", fontSize:13 }}>
+        <thead>
+          <tr>
+            {headers.map(h => (
+              <th key={h} style={{ background:t.thead, color:t.muted, fontSize:10, textTransform:"uppercase", letterSpacing:".07em", padding:"10px 14px", textAlign:"left", fontWeight:600, borderBottom:"1px solid "+t.border, whiteSpace:"nowrap" }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: rows }).map((_, i) => (
+            <tr key={i} style={{ borderBottom:"1px solid "+t.border }}>
+              {/* Estado */}
+              <td style={{ padding:"12px 14px" }}><Shimmer w={72} h={20} r={20} /></td>
+              {/* Empresa with logo */}
+              <td style={{ padding:"12px 14px" }}>
+                <span style={{ display:"inline-flex", alignItems:"center", gap:9 }}>
+                  <Shimmer w={26} h={26} r={13} />
+                  <Shimmer w={80 + (i % 3) * 20} h={12} />
+                </span>
+              </td>
+              {/* remaining cols */}
+              {Array.from({ length: cols - 2 }).map((__, j) => (
+                <td key={j} style={{ padding:"12px 14px" }}>
+                  <Shimmer w={j === cols - 3 ? 48 : 40 + ((i + j) % 4) * 15} h={12} />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function MobileSkeleton({ t, dark }) {
+  return (
+    <div style={{ padding:"0 16px 60px", display:"flex", flexDirection:"column", gap:10 }}>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} style={{ background:t.card, border:"1px solid "+t.border, borderRadius:12, padding:"14px 16px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, marginBottom:10 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10, flex:1 }}>
+              <Shimmer w={36} h={36} r={18} />
+              <div style={{ flex:1, display:"flex", flexDirection:"column", gap:6 }}>
+                <Shimmer w={"60%"} h={13} />
+                <Shimmer w={"40%"} h={11} />
+              </div>
+            </div>
+            <Shimmer w={70} h={22} r={20} />
+          </div>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            <Shimmer w={60} h={11} />
+            <Shimmer w={50} h={11} />
+            <Shimmer w={70} h={11} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+// ─── COLUMN INFO / GLOSSARY ───────────────────────────────────────────────────
+// Explanations shown when the user taps the "?" next to certain column headers.
+const COLUMN_INFO = {
+  stage: {
+    title: "Etapa",
+    intro: "Indica en qué parte del proceso de selección se encuentra la empresa según lo que reportan otros postulantes. Te sirve para saber si un proceso ya está avanzado (y podrías ir tarde) o si aún estás a tiempo de postular.",
+    items: [
+      { emoji: "📝", term: "Test Online", desc: "La empresa está enviando pruebas online (lógica, numéricas, verbales) a los postulantes." },
+      { emoji: "🎥", term: "Primera Entrevista / Primera Ronda", desc: "Ya están citando a la primera instancia de entrevista. Puede ser una entrevista en vivo con RR.HH., o una entrevista pregrabada (one-way) como HireVue u otra plataforma similar." },
+      { emoji: "🗣️", term: "Segunda / Tercera Entrevista", desc: "El proceso avanzó a entrevistas más profundas, muchas veces con el equipo o líderes del área." },
+      { emoji: "🏢", term: "Assessment Center", desc: "Etapa grupal presencial o virtual con dinámicas, casos y ejercicios en equipo." },
+      { emoji: "🎉", term: "Ofertas Enviadas", desc: "La empresa ya está entregando ofertas a los candidatos seleccionados." },
+    ],
+  },
+  last_open: {
+    title: "Última Apertura",
+    intro: "Es la fecha en que esta oportunidad abrió en una ocasión anterior (por ejemplo, el año pasado). Sirve como referencia para estimar cuándo podría volver a abrir este año, ya que muchas empresas repiten fechas similares cada temporada.",
+    items: [
+      { emoji: "📅", term: "¿Para qué me sirve?", desc: "Si una práctica abrió en Agosto el año pasado y aún no abre este año, probablemente lo haga cerca de esa fecha. Te ayuda a anticiparte y estar listo." },
+      { emoji: "⏳", term: "¿Es una fecha exacta?", desc: "No. Es una fecha estimada basada en el histórico. La fecha real puede variar algunas semanas." },
+    ],
+  },
+  process: {
+    title: "Proceso",
+    intro: "Resume las etapas por las que pasarás en el proceso de selección. Aquí te explicamos las siglas y términos más comunes que verás en esta columna:",
+    items: [
+      { emoji: "📝", term: "OA — Online Assessment", desc: "Prueba online inicial: suele incluir tests de razonamiento numérico, verbal, lógico o de personalidad. Es el primer filtro." },
+      { emoji: "🎬", term: "EP — Entrevista Pregrabada", desc: "También llamada one-way interview. Grabas tus respuestas en video frente a la cámara, sin entrevistador en vivo: aparece una pregunta, tienes unos segundos para prepararte y luego un tiempo limitado para responder. Se revisa después. Usamos EP cuando no sabemos qué plataforma específica ocupa la empresa." },
+      { emoji: "🎥", term: "HV — HireVue", desc: "Una plataforma específica de entrevista pregrabada, muy usada por bancos y consultoras internacionales. Funciona igual que una EP, pero indicamos HV cuando sabemos con certeza que la empresa ocupa HireVue." },
+      { emoji: "🤖", term: "Aira", desc: "Asistente de reclutamiento con inteligencia artificial usado por varias empresas en Chile. Similar a HireVue: rindes tests o entrevistas grabadas evaluadas por IA." },
+      { emoji: "💻", term: "VI — Virtual Interview", desc: "Entrevista en vivo por videollamada (Zoom, Teams, Meet) con un reclutador o con el equipo." },
+      { emoji: "⚙️", term: "TI — Technical Interview", desc: "Entrevista técnica enfocada en conocimientos específicos del rol (finanzas, programación, casos, etc.)." },
+      { emoji: "🏢", term: "AC — Assessment Center", desc: "Jornada grupal (presencial o virtual) con dinámicas, casos de negocio y ejercicios en equipo para evaluar habilidades." },
+      { emoji: "🤝", term: "F2F — Face to Face", desc: "Entrevista presencial, cara a cara, normalmente en las oficinas de la empresa." },
+      { emoji: "📊", term: "Case Study", desc: "Estudio de caso: te presentan un problema de negocio real o simulado y debes analizarlo y proponer una solución." },
+    ],
+  },
+};
+
+function InfoModal({ infoKey, t, dark, onClose }) {
+  const info = COLUMN_INFO[infoKey];
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  if (!info) return null;
+
+  return createPortal(
+    <div onClick={onClose} className="info-overlay"
+      style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", backdropFilter:"blur(3px)", zIndex:10000, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+      <div onClick={e=>e.stopPropagation()} className="info-modal"
+        style={{ background:t.card, borderRadius:18, maxWidth:520, width:"100%", maxHeight:"85vh", overflowY:"auto", boxShadow:"0 24px 64px rgba(0,0,0,.4)", border:"1px solid "+t.border, fontFamily:"'DM Sans', sans-serif" }}>
+        {/* Header */}
+        <div style={{ padding:"22px 24px 16px", borderBottom:"1px solid "+t.border, position:"sticky", top:0, background:t.card, borderRadius:"18px 18px 0 0", zIndex:1 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
+            <h3 style={{ fontFamily:"'Sora',sans-serif", fontSize:20, fontWeight:700, color:t.text, letterSpacing:"-.02em", margin:0 }}>
+              {info.title}
+            </h3>
+            <button onClick={onClose} style={{ background:t.pill, border:"1px solid "+t.border, borderRadius:8, width:30, height:30, cursor:"pointer", color:t.muted, fontSize:16, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontFamily:"inherit", lineHeight:1 }}>✕</button>
+          </div>
+          <p style={{ fontSize:13.5, color:t.textSec, lineHeight:1.6, margin:"10px 0 0" }}>{info.intro}</p>
+        </div>
+        {/* Items */}
+        <div style={{ padding:"16px 24px 24px", display:"flex", flexDirection:"column", gap:14 }}>
+          {info.items.map((it, i) => (
+            <div key={i} style={{ display:"flex", gap:13, alignItems:"flex-start" }}>
+              <div style={{ fontSize:22, flexShrink:0, lineHeight:1.2, width:30, textAlign:"center" }}>{it.emoji}</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:14, fontWeight:700, color:t.text, marginBottom:3 }}>{it.term}</div>
+                <div style={{ fontSize:13, color:t.muted, lineHeight:1.55 }}>{it.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ─── FEEDBACK MODAL ───────────────────────────────────────────────────────────
+function FeedbackModal({ t, dark, area, subcat, onClose }) {
+  const [type, setType] = useState("missing"); // "missing" | "error"
+  const [message, setMessage] = useState("");
+  const [email, setEmail] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const canSend = message.trim().length >= 5 && emailValid && !sending;
+
+  const submit = async () => {
+    if (!canSend) return;
+    setSending(true);
+    setError("");
+    try {
+      const res = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: type === "missing" ? "Sugerir oportunidad faltante" : "Encontré un error",
+          message: message.trim(),
+          email: email.trim(),
+          area, subcat,
+        }),
+      });
+      if (!res.ok) throw new Error("No se pudo enviar");
+      setSent(true);
+    } catch (e) {
+      setError("Hubo un problema al enviar. Intenta de nuevo en un momento.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return createPortal(
+    <div onClick={onClose} className="info-overlay"
+      style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", backdropFilter:"blur(3px)", zIndex:10000, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+      <div onClick={e=>e.stopPropagation()} className="info-modal"
+        style={{ background:t.card, borderRadius:18, maxWidth:460, width:"100%", maxHeight:"88vh", overflowY:"auto", boxShadow:"0 24px 64px rgba(0,0,0,.4)", border:"1px solid "+t.border, fontFamily:"'DM Sans',sans-serif" }}>
+
+        {sent ? (
+          <div style={{ padding:"40px 28px", textAlign:"center" }}>
+            <div style={{ fontSize:52, marginBottom:14 }}>🙌</div>
+            <h3 style={{ fontFamily:"'Sora',sans-serif", fontSize:20, fontWeight:700, color:t.text, marginBottom:10, letterSpacing:"-.02em" }}>¡Gracias por avisar!</h3>
+            <p style={{ fontSize:14, color:t.muted, lineHeight:1.6, marginBottom:24 }}>
+              Recibimos tu mensaje y lo revisaremos pronto. Aportes como el tuyo hacen que MiPasantía sea mejor para todos.
+            </p>
+            <button onClick={onClose} className="cta" style={{ fontSize:14, padding:"11px 28px" }}>Cerrar</button>
+          </div>
+        ) : (
+          <>
+            <div style={{ padding:"22px 24px 16px", borderBottom:"1px solid "+t.border }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
+                <h3 style={{ fontFamily:"'Sora',sans-serif", fontSize:19, fontWeight:700, color:t.text, letterSpacing:"-.02em", margin:0 }}>
+                  ¿Notaste algo incorrecto o faltante?
+                </h3>
+                <button onClick={onClose} style={{ background:t.pill, border:"1px solid "+t.border, borderRadius:8, width:30, height:30, cursor:"pointer", color:t.muted, fontSize:16, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontFamily:"inherit", lineHeight:1 }}>✕</button>
+              </div>
+              <p style={{ fontSize:13, color:t.muted, lineHeight:1.55, margin:"8px 0 0" }}>
+                Ayúdanos a mantener la información precisa y completa. Cuéntanos qué encontraste.
+              </p>
+            </div>
+
+            <div style={{ padding:"18px 24px 24px" }}>
+              {/* Type selector */}
+              <div style={{ display:"flex", gap:8, marginBottom:18 }}>
+                {[
+                  { id:"missing", icon:"➕", label:"Sugerir oportunidad" },
+                  { id:"error",   icon:"⚠️", label:"Encontré un error" },
+                ].map(opt => (
+                  <button key={opt.id} onClick={()=>setType(opt.id)}
+                    style={{ flex:1, padding:"11px 10px", borderRadius:10, border:"1.5px solid "+(type===opt.id?t.red:t.border), background:type===opt.id?(dark?"#2a0f0d":"#fff1f0"):t.input, color:type===opt.id?t.red:t.muted, fontSize:12.5, fontWeight:600, cursor:"pointer", fontFamily:"inherit", transition:"all .15s", display:"flex", flexDirection:"column", alignItems:"center", gap:5 }}>
+                    <span style={{ fontSize:18 }}>{opt.icon}</span>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Message */}
+              <label style={{ fontSize:12, fontWeight:600, color:t.textSec, display:"block", marginBottom:6 }}>
+                {type==="missing" ? "Describe la oportunidad" : "Describe el error"}
+              </label>
+              <textarea value={message} onChange={e=>setMessage(e.target.value)}
+                placeholder={type==="missing"
+                  ? "Ej: Falta la práctica de verano de [empresa], el link es..."
+                  : "Ej: La fecha de cierre de [empresa] dice X pero debería ser Y..."}
+                rows={4}
+                style={{ width:"100%", padding:"10px 12px", borderRadius:9, border:"1px solid "+t.border, background:t.input, color:t.text, fontSize:13.5, fontFamily:"inherit", resize:"vertical", marginBottom:16, boxSizing:"border-box", lineHeight:1.5 }} />
+
+              {/* Email */}
+              <label style={{ fontSize:12, fontWeight:600, color:t.textSec, display:"block", marginBottom:6 }}>
+                Tu correo <span style={{ color:t.faint, fontWeight:400 }}>(para evitar spam y poder responderte)</span>
+              </label>
+              <input type="email" value={email} onChange={e=>setEmail(e.target.value)}
+                placeholder="tu@correo.com"
+                style={{ width:"100%", padding:"10px 12px", borderRadius:9, border:"1px solid "+t.border, background:t.input, color:t.text, fontSize:13.5, fontFamily:"inherit", marginBottom:18, boxSizing:"border-box" }} />
+
+              {error && <div style={{ fontSize:12.5, color:"#e11d48", marginBottom:12 }}>{error}</div>}
+
+              <button onClick={submit} disabled={!canSend} className={canSend ? "cta" : ""}
+                style={{ width:"100%", padding:"12px 0", fontSize:14, fontWeight:600, borderRadius:10, cursor:canSend?"pointer":"not-allowed", fontFamily:"inherit", border:"none",
+                  background: canSend ? undefined : t.pill,
+                  color: canSend ? "#fff" : t.faint,
+                  opacity: sending ? .7 : 1 }}>
+                {sending ? "Enviando…" : "Enviar sugerencia"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// Small "?" button placed next to certain column headers
+function InfoButton({ onClick, t }) {
+  return (
+    <button onClick={onClick} title="¿Qué significa?"
+      style={{ background:"none", border:"1px solid "+t.border, borderRadius:"50%", width:15, height:15, minWidth:15, padding:0, cursor:"pointer", color:t.faint, fontSize:10, fontWeight:700, display:"inline-flex", alignItems:"center", justifyContent:"center", marginLeft:5, fontFamily:"'DM Sans',sans-serif", lineHeight:1, verticalAlign:"middle", transition:"all .15s" }}
+      onMouseEnter={e=>{ e.currentTarget.style.borderColor=t.red; e.currentTarget.style.color=t.red; }}
+      onMouseLeave={e=>{ e.currentTarget.style.borderColor=t.border; e.currentTarget.style.color=t.faint; }}>
+      ?
+    </button>
+  );
+}
+
 // ─── STYLES ───────────────────────────────────────────────────────────────────
 function Styles({ t, dark }) {
   return (
@@ -2011,20 +3041,117 @@ function Styles({ t, dark }) {
       .cta:disabled{opacity:.5;cursor:not-allowed}
       .country-card:hover{transform:translateY(-4px) scale(1.02);border-color:${t.red}!important;box-shadow:0 10px 28px rgba(212,40,26,.12)}
       .country-card-soon{animation:fadeUp .42s ease both;animation-delay:calc(var(--i)*.05s)}
-      .area-card:hover{transform:translateY(-3px);border-color:var(--ac)!important;box-shadow:0 6px 20px rgba(0,0,0,.1)}
-      .country-card,.area-card{animation:fadeUp .4s ease both;animation-delay:calc(var(--i)*.05s);transition:all .18s}
+      .area-card:not(.area-locked):hover{transform:translateY(-3px);border-color:var(--ac)!important;box-shadow:0 6px 20px rgba(0,0,0,.1)}
+      .area-locked{filter:saturate(.4)}
+      .country-card,.area-card{animation:cardPop .5s cubic-bezier(.22,.61,.36,1) both;animation-delay:calc(var(--i)*.045s);transition:transform .18s,border-color .18s,box-shadow .18s}
       .trow:hover td{background:${dark?"rgba(255,255,255,.018)":"rgba(0,0,0,.018)"}}
+      .dd-item{transition:background .12s,transform .1s}
       .dd-item:hover{background:${t.pill}}
+      .dd-item:active{transform:scale(.97)}
       .modal-in{animation:fadeUp .3s ease both}
       .blink-dot{width:6px;height:6px;border-radius:50%;background:#10b981;display:inline-block;animation:blink 2s infinite}
       @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
-      @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+      @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
       .land-in{animation:fadeUp .55s ease both}
       .page-in{animation:fadeUp .4s ease both}
       @keyframes spin-kf{to{transform:rotate(360deg)}}
       .spin-icon{display:inline-block;animation:spin-kf .9s linear infinite}
       @keyframes grid-shift{0%{background-position:0 0}100%{background-position:48px 48px}}
       .grid-anim{animation:grid-shift 4s linear infinite}
+
+      /* Skeleton shimmer */
+      .skeleton-shimmer{
+        background:linear-gradient(90deg,
+          ${dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 25%,
+          ${dark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.11)"} 37%,
+          ${dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 63%);
+        background-size:400% 100%;
+        animation:shimmer 1.4s ease infinite;
+      }
+      @keyframes shimmer{0%{background-position:100% 50%}100%{background-position:0 50%}}
+
+      /* Real rows fade-in when data loads */
+      @keyframes rowFadeIn{
+        from{opacity:0;transform:translateY(8px)}
+        to{opacity:1;transform:none}
+      }
+      .row-enter{animation:rowFadeIn .45s cubic-bezier(.22,.61,.36,1) both}
+
+      /* Group headers fade */
+      @keyframes fadeSlide{
+        from{opacity:0;transform:translateY(6px)}
+        to{opacity:1;transform:none}
+      }
+      .fade-slide{animation:fadeSlide .4s ease both}
+
+      /* Page transitions */
+      @keyframes pageIn{
+        from{opacity:0;transform:translateY(10px)}
+        to{opacity:1;transform:none}
+      }
+      @keyframes pageOut{
+        from{opacity:1;transform:translateY(0)}
+        to{opacity:0;transform:translateY(-6px)}
+      }
+      .page-entering{animation:pageIn .38s cubic-bezier(.22,.61,.36,1) both}
+      .page-leaving{animation:pageOut .16s ease-in both}
+
+      /* Group expand/collapse */
+      @keyframes groupExpand{
+        from{opacity:0;transform:translateY(-4px)}
+        to{opacity:1;transform:none}
+      }
+      .group-expand{animation:groupExpand .3s ease both}
+      .group-header-row:hover td{background:${dark?"#161618":"#e8edf4"}!important}
+
+      /* Subcategory switch fade */
+      @keyframes subcatFade{
+        from{opacity:0;transform:translateY(6px)}
+        to{opacity:1;transform:none}
+      }
+      .subcat-fade{animation:subcatFade .32s cubic-bezier(.22,.61,.36,1) both}
+
+      /* Info modal */
+      @keyframes infoOverlayIn{from{opacity:0}to{opacity:1}}
+      @keyframes infoModalIn{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
+      .info-overlay{animation:infoOverlayIn .2s ease both}
+      .info-modal{animation:infoModalIn .3s cubic-bezier(.22,.61,.36,1) both}
+
+      /* Confetti burst */
+      @keyframes confettiFly{
+        0%{opacity:0;transform:translate(0,0) scale(.3)}
+        20%{opacity:1}
+        100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(1.1)}
+      }
+      .confetti-piece{animation:confettiFly 2s cubic-bezier(.15,.7,.35,1) forwards}
+
+      /* Status badge pulse when changed */
+      @keyframes badgePulse{
+        0%{transform:scale(1)}
+        35%{transform:scale(1.12)}
+        100%{transform:scale(1)}
+      }
+      .badge-pulse{animation:badgePulse .42s cubic-bezier(.34,1.56,.64,1)}
+
+      /* Button press effect */
+      .press{transition:transform .1s ease}
+      .press:active{transform:scale(.96)}
+
+      /* CTA press */
+      .cta:active{transform:scale(.97)}
+
+      /* Area cards cascade entrance */
+      @keyframes cardPop{
+        from{opacity:0;transform:translateY(14px) scale(.97)}
+        to{opacity:1;transform:none}
+      }
+
+      /* Respect reduced motion preference */
+      @media (prefers-reduced-motion: reduce){
+        .page-entering,.page-leaving,.row-enter,.group-expand,.skeleton-shimmer,.grid-anim{
+          animation:none !important;
+        }
+      }
     `}</style>
   );
 }

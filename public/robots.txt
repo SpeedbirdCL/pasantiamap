@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://pasantiamap.vercel.app/sitemap.xml

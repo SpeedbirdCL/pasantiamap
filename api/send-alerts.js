@@ -70,9 +70,32 @@ async function fetchSheet(url) {
   } catch { return []; }
 }
 
+function parseDate(str) {
+  if (!str) return null;
+  const s = String(str).trim();
+  if (!s) return null;
+  // DD/MM/YYYY or DD-MM-YYYY
+  let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (m) {
+    let [, d, mo, y] = m;
+    d = parseInt(d, 10); mo = parseInt(mo, 10); y = parseInt(y, 10);
+    if (y < 100) y += 2000;
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) return new Date(y, mo - 1, d);
+  }
+  // ISO YYYY-MM-DD
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) {
+    const y = parseInt(m[1], 10), mo = parseInt(m[2], 10), d = parseInt(m[3], 10);
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) return new Date(y, mo - 1, d);
+  }
+  const native = new Date(s);
+  return isNaN(native.getTime()) ? null : native;
+}
+
 function daysUntil(dateStr) {
-  if (!dateStr) return null;
-  return Math.floor((new Date(dateStr) - Date.now()) / 86400000);
+  const d = parseDate(dateStr);
+  if (!d) return null;
+  return Math.floor((d - Date.now()) / 86400000);
 }
 
 function buildEmail(userName, alerts) {
